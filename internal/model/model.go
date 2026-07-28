@@ -70,3 +70,14 @@ type Booking struct {
 	Status    BookingStatus `json:"status" db:"status"`
 	CreatedAt time.Time     `json:"created_at" db:"created_at"`
 }
+
+// RefreshToken — refresh-токен пользователя. Храним только хэш (TokenHash),
+// сырой токен никогда не попадает в БД.
+type RefreshToken struct {
+	ID        int64      `json:"id" db:"id"`
+	UserID    int64      `json:"user_id" db:"user_id"`
+	TokenHash string     `json:"-" db:"token_hash"`
+	ExpiresAt time.Time  `json:"expires_at" db:"expires_at"`
+	RevokedAt *time.Time `json:"revoked_at,omitempty" db:"revoked_at"`
+	CreatedAt time.Time  `json:"created_at" db:"created_at"`
+}

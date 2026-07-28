@@ -31,3 +31,10 @@ type BookingRepo interface {
 	ListByShow(ctx context.Context, showID int64) ([]model.Booking, error)
 	Cancel(ctx context.Context, id int64) error
 }
+
+type RefreshTokenRepo interface {
+	Create(ctx context.Context, rt *model.RefreshToken) (int64, error)
+	GetByHash(ctx context.Context, hash string) (*model.RefreshToken, error)
+	Revoke(ctx context.Context, id int64) error
+	RevokeAllForUser(ctx context.Context, userID int64) error
+}
