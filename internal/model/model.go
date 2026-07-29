@@ -71,6 +71,18 @@ type Booking struct {
 	CreatedAt time.Time     `json:"created_at" db:"created_at"`
 }
 
+type ShowDetail struct {
+	Show
+	FreeSeats int `json:"free_seats"`
+}
+
+type ShowListResponse struct {
+	Items    []Show `json:"items"`
+	Total    int    `json:"total"`
+	Page     int    `json:"page"`
+	PageSize int    `json:"page_size"`
+}
+
 // RefreshToken — refresh-токен пользователя. Храним только хэш (TokenHash),
 // сырой токен никогда не попадает в БД.
 type RefreshToken struct {

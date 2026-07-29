@@ -2,9 +2,20 @@ package repository
 
 import (
 	"context"
+	"time"
 
 	"github.com/raxima/seatpicker/internal/model"
 )
+
+type ShowListFilter struct {
+	Search   string // поиск по названию (ILIKE)
+	Venue    string // точный фильтр по залу
+	DateFrom *time.Time
+	DateTo   *time.Time
+	Status   model.ShowStatus
+	Page     int
+	PageSize int
+}
 
 type UserRepo interface {
 	Create(ctx context.Context, u *model.User) (int64, error)
@@ -15,8 +26,9 @@ type UserRepo interface {
 type ShowRepo interface {
 	Create(ctx context.Context, s *model.Show) (int64, error)
 	GetByID(ctx context.Context, id int64) (*model.Show, error)
-	List(ctx context.Context) ([]model.Show, error)
+	List(ctx context.Context, f ShowListFilter) ([]model.Show, int, error)
 	UpdateStatus(ctx context.Context, id int64, status model.ShowStatus) error
+	CountFreeSeats(ctx context.Context, showID int64) (int, error)
 }
 
 type SeatRepo interface {

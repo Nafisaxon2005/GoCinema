@@ -12,7 +12,6 @@ import (
 	"github.com/raxima/seatpicker/internal/service"
 )
 
-// Config — настройки, нужные роутеру для сборки JWT-зависимых компонентов.
 type Config struct {
 	JWTSecret  []byte
 	AccessTTL  time.Duration
@@ -40,6 +39,14 @@ func New(db *pgxpool.Pool, cfg Config) *gin.Engine {
 	auth.POST("/login", authHandler.Login)
 	auth.POST("/refresh", authHandler.Refresh)
 	auth.POST("/logout", authHandler.Logout)
+
+	showRepo := repository.NewPgShowRepo(db)
+	showService := service.NewShowService(showRepo)
+	showHandler := handler.NewShowHandler(showService)
+
+	shows := r.Group("/shows")
+	shows.GET("", showHandler.List)
+	shows.GET("/:id", showHandler.GetByID)
 
 	// TODO: сюда подключаются роуты дорожек A/B/C.
 	_ = middleware.Auth
