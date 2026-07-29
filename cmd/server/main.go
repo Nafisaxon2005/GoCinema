@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/raxima/seatpicker/internal/router"
+	"github.com/raxima/seatpicker/internal/service"
 )
 
 func getenv(key, fallback string) string {
@@ -23,10 +24,11 @@ func getenv(key, fallback string) string {
 	return fallback
 }
 
-func getenvDuration(key, fallback string) time.Duration {
+func getenvDuration(logger *slog.Logger, key, fallback string) time.Duration {
 	d, err := time.ParseDuration(getenv(key, fallback))
 	if err != nil {
-		log.Fatalf("неверный формат длительности для %s: %v", key, err)
+		logger.Error("неверный формат длительности", "key", key, "error", err)
+		os.Exit(1)
 	}
 	return d
 }
@@ -61,7 +63,13 @@ func main() {
 	}
 	logger.Info("подключение к БД установлено")
 
-	r := router.New(pool, logger)
+	authCfg := service.AuthConfig{
+		JWTSecret:  []byte(getenv("JWT_SECRET", "dev-secret-change-me")),
+		AccessTTL:  getenvDuration(logger, "JWT_ACCESS_TTL", "15m"),
+		RefreshTTL: getenvDuration(logger, "JWT_REFRESH_TTL", "720h"),
+	}
+
+	r := router.New(pool, logger, authCfg)
 
 	port := getenv("APP_PORT", "8080")
 	srv := &http.Server{

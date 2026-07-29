@@ -5,7 +5,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/raxima/seatpicker/internal/middleware"
 
 	"github.com/raxima/seatpicker/internal/handler"
 	"github.com/raxima/seatpicker/internal/middleware"
@@ -13,7 +12,7 @@ import (
 	"github.com/raxima/seatpicker/internal/service"
 )
 
-func New(db *pgxpool.Pool, logger *slog.Logger) *gin.Engine {
+func New(db *pgxpool.Pool, logger *slog.Logger, authCfg service.AuthConfig) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Recovery())
 
@@ -24,11 +23,11 @@ func New(db *pgxpool.Pool, logger *slog.Logger) *gin.Engine {
 	r.GET("/health", healthHandler.Health)
 
 	userRepo := repository.NewPgUserRepo(db, logger)
-	authService := service.NewAuthService(userRepo, logger)
+	refreshTokenRepo := repository.NewPgRefreshTokenRepo(db)
+	authService := service.NewAuthService(userRepo, refreshTokenRepo, authCfg, logger)
 	authHandler := handler.NewAuthHandler(authService, logger)
 
 	auth := r.Group("/auth")
-
 	auth.POST("/register", authHandler.Register)
 	auth.POST("/login", authHandler.Login)
 	auth.POST("/refresh", authHandler.Refresh)
@@ -43,6 +42,6 @@ func New(db *pgxpool.Pool, logger *slog.Logger) *gin.Engine {
 	shows.GET("/:id", showHandler.GetByID)
 
 	// TODO: сюда подключаются роуты дорожек A/B/C.
-	_ = middleware.Auth
+
 	return r
 }
