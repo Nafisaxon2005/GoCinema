@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -16,6 +17,14 @@ func getenv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func getenvDuration(key, fallback string) time.Duration {
+	d, err := time.ParseDuration(getenv(key, fallback))
+	if err != nil {
+		log.Fatalf("неверный формат длительности для %s: %v", key, err)
+	}
+	return d
 }
 
 func main() {
@@ -41,7 +50,13 @@ func main() {
 	}
 	log.Println("подключение к БД установлено")
 
-	r := router.New(pool)
+	cfg := router.Config{
+		JWTSecret:  []byte(getenv("JWT_SECRET", "dev-secret-change-me")),
+		AccessTTL:  getenvDuration("ACCESS_TOKEN_TTL", "15m"),
+		RefreshTTL: getenvDuration("REFRESH_TOKEN_TTL", "720h"), // 30 дней
+	}
+
+	r := router.New(pool, cfg)
 
 	port := getenv("APP_PORT", "8080")
 	log.Printf("сервер запущен на :%s", port)
