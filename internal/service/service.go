@@ -12,6 +12,12 @@ import (
 
 const minPasswordLength = 8
 
+type AuthConfig struct {
+	JWTSecret  []byte
+	AccessTTL  time.Duration
+	RefreshTTL time.Duration
+}
+
 type AuthService struct {
 	users  repository.UserRepo
 	logger *slog.Logger

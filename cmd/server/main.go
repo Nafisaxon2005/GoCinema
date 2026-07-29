@@ -23,6 +23,14 @@ func getenv(key, fallback string) string {
 	return fallback
 }
 
+func getenvDuration(key, fallback string) time.Duration {
+	d, err := time.ParseDuration(getenv(key, fallback))
+	if err != nil {
+		log.Fatalf("неверный формат длительности для %s: %v", key, err)
+	}
+	return d
+}
+
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
