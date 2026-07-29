@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
 
@@ -11,15 +12,24 @@ import (
 
 const minPasswordLength = 8
 
+type AuthConfig struct {
+	JWTSecret  []byte
+	AccessTTL  time.Duration
+	RefreshTTL time.Duration
+}
+
 type AuthService struct {
-	users repository.UserRepo
+	users         repository.UserRepo
+	refreshTokens repository.RefreshTokenRepo
+	cfg           AuthConfig
 }
 
-func NewAuthService(users repository.UserRepo) *AuthService {
-	return &AuthService{users: users}
+func NewAuthService(users repository.UserRepo, refreshTokens repository.RefreshTokenRepo,
+	cfg AuthConfig) *AuthService {
+	return &AuthService{users: users, refreshTokens: refreshTokens, cfg: cfg}
 }
 
-// RegisterInput — то, что приходит из handler после биндинга JSON.
+// RegisterInput —  что приходит из handler после биндинга JSON.
 type RegisterInput struct {
 	Login    string
 	Password string
