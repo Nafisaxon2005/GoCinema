@@ -1,23 +1,30 @@
 package router
 
 import (
+	"log/slog"
+
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/raxima/seatpicker/internal/handler"
+	"github.com/raxima/seatpicker/internal/middleware"
 	"github.com/raxima/seatpicker/internal/repository"
 	"github.com/raxima/seatpicker/internal/service"
 )
 
-func New(db *pgxpool.Pool) *gin.Engine {
-	r := gin.Default()
+func New(db *pgxpool.Pool, logger *slog.Logger) *gin.Engine {
+	r := gin.New()
+	r.Use(gin.Recovery())
 
-	healthHandler := handler.NewHealthHandler(db)
+	r.Use(middleware.RequestID())
+	r.Use(middleware.Logger(logger))
+
+	healthHandler := handler.NewHealthHandler(db, logger)
 	r.GET("/health", healthHandler.Health)
 
-	userRepo := repository.NewPgUserRepo(db)
-	authService := service.NewAuthService(userRepo)
-	authHandler := handler.NewAuthHandler(authService)
+	userRepo := repository.NewPgUserRepo(db, logger)
+	authService := service.NewAuthService(userRepo, logger)
+	authHandler := handler.NewAuthHandler(authService, logger)
 
 	auth := r.Group("/auth")
 	auth.POST("/register", authHandler.Register)
