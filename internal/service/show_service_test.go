@@ -412,4 +412,58 @@ func TestShowService_Delete_Poster_SeatMap_Stats_Cancel(t *testing.T) {
 	})
 }
 
+func TestShowService_EdgeCases(t *testing.T) {
+	repo := newFakeShowRepo()
+	svc := NewShowService(repo)
+
+	show, _ := svc.Create(context.Background(), 10, model.CreateShowInput{
+		Title:    "Фильм 2",
+		Venue:    "Зал B",
+		StartsAt: time.Now().Add(24 * time.Hour),
+	})
+
+	t.Run("Create empty title or venue", func(t *testing.T) {
+		_, err := svc.Create(context.Background(), 10, model.CreateShowInput{Title: "", Venue: "Зал 1", StartsAt: time.Now().Add(time.Hour)})
+		if err != model.ErrInvalid {
+			t.Errorf("expected ErrInvalid, got %v", err)
+		}
+	})
+
+	t.Run("Update empty title, venue or past starts_at", func(t *testing.T) {
+		emptyStr := ""
+		past := time.Now().Add(-time.Hour)
+		if _, err := svc.Update(context.Background(), 10, show.ID, model.UpdateShowInput{Title: &emptyStr}); err != model.ErrInvalid {
+			t.Errorf("expected ErrInvalid, got %v", err)
+		}
+		if _, err := svc.Update(context.Background(), 10, show.ID, model.UpdateShowInput{Venue: &emptyStr}); err != model.ErrInvalid {
+			t.Errorf("expected ErrInvalid, got %v", err)
+		}
+		if _, err := svc.Update(context.Background(), 10, show.ID, model.UpdateShowInput{StartsAt: &past}); err != model.ErrInvalid {
+			t.Errorf("expected ErrInvalid, got %v", err)
+		}
+	})
+
+	t.Run("GetPosterPath empty poster returns ErrNotFound", func(t *testing.T) {
+		if _, err := svc.GetPosterPath(context.Background(), show.ID); err != model.ErrNotFound {
+			t.Errorf("expected ErrNotFound, got %v", err)
+		}
+	})
+
+	t.Run("GenerateSeatMap invalid dimensions", func(t *testing.T) {
+		if err := svc.GenerateSeatMap(context.Background(), 10, show.ID, model.GenerateSeatMapInput{Rows: 0, SeatsPerRow: 5, Price: 100}); err != model.ErrInvalid {
+			t.Errorf("expected ErrInvalid, got %v", err)
+		}
+	})
+
+	t.Run("GetStats and CancelShow forbidden for non-owner", func(t *testing.T) {
+		if _, err := svc.GetStats(context.Background(), 99, show.ID); err != model.ErrForbidden {
+			t.Errorf("expected ErrForbidden, got %v", err)
+		}
+		if err := svc.CancelShow(context.Background(), 99, show.ID); err != model.ErrForbidden {
+			t.Errorf("expected ErrForbidden, got %v", err)
+		}
+	})
+}
+
+
 

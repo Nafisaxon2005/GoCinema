@@ -368,6 +368,61 @@ func TestShowHandler_OrganizerEndpoints(t *testing.T) {
 			t.Errorf("expected 400, got %d", w.Code)
 		}
 	})
+
+	t.Run("UploadPoster validation errors", func(t *testing.T) {
+		newID, _ := repo.Create(context.Background(), &model.Show{OrganizerID: 10, StartsAt: time.Now().Add(time.Hour)})
+
+		// Missing file
+		r := gin.New()
+		r.POST("/shows/:id/poster", func(c *gin.Context) { c.Set("userID", int64(10)); h.UploadPoster(c) })
+		req := httptest.NewRequest(http.MethodPost, "/shows/"+itoa(newID)+"/poster", nil)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("expected 400 for missing file, got %d", w.Code)
+		}
+
+		// Non-image content type
+		var body bytes.Buffer
+		mw := multipart.NewWriter(&body)
+		hHeader := make(textproto.MIMEHeader)
+		hHeader.Set("Content-Disposition", `form-data; name="poster"; filename="test.txt"`)
+		hHeader.Set("Content-Type", "text/plain")
+		part, _ := mw.CreatePart(hHeader)
+		part.Write([]byte("not an image"))
+		mw.Close()
+
+		reqText := httptest.NewRequest(http.MethodPost, "/shows/"+itoa(newID)+"/poster", &body)
+		reqText.Header.Set("Content-Type", mw.FormDataContentType())
+		wText := httptest.NewRecorder()
+		r.ServeHTTP(wText, reqText)
+		if wText.Code != http.StatusBadRequest {
+			t.Errorf("expected 400 for text/plain, got %d", wText.Code)
+		}
+	})
+
+	t.Run("GetPoster not found -> 404", func(t *testing.T) {
+		r := gin.New()
+		r.GET("/shows/:id/poster", h.GetPoster)
+		req := httptest.NewRequest(http.MethodGet, "/shows/9999/poster", nil)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusNotFound {
+			t.Errorf("expected 404, got %d", w.Code)
+		}
+	})
+
+	t.Run("Invalid JSON payloads -> 400", func(t *testing.T) {
+		if w := doPostJSON(h.Create, "/shows", "/shows", `invalid json`, 10); w.Code != http.StatusBadRequest {
+			t.Errorf("expected 400, got %d", w.Code)
+		}
+		if w := doPutJSON(h.Update, "/shows/:id", "/shows/1", `invalid json`, 10); w.Code != http.StatusBadRequest {
+			t.Errorf("expected 400, got %d", w.Code)
+		}
+		if w := doPostJSON(h.GenerateSeatMap, "/shows/:id/seatmap", "/shows/1/seatmap", `invalid json`, 10); w.Code != http.StatusBadRequest {
+			t.Errorf("expected 400, got %d", w.Code)
+		}
+	})
 }
 
 func itoa(n int64) string {
