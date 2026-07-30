@@ -64,6 +64,55 @@ func (r *fakeShowRepo) CountFreeSeats(ctx context.Context, showID int64) (int, e
 	return r.freeSeats[showID], nil
 }
 
+func (r *fakeShowRepo) Update(ctx context.Context, s *model.Show) error {
+	if _, ok := r.shows[s.ID]; !ok {
+		return model.ErrNotFound
+	}
+	cp := *s
+	r.shows[s.ID] = &cp
+	return nil
+}
+
+func (r *fakeShowRepo) Delete(ctx context.Context, id int64) error {
+	if _, ok := r.shows[id]; !ok {
+		return model.ErrNotFound
+	}
+	delete(r.shows, id)
+	return nil
+}
+
+func (r *fakeShowRepo) UpdatePoster(ctx context.Context, showID int64, posterPath string) error {
+	s, ok := r.shows[showID]
+	if !ok {
+		return model.ErrNotFound
+	}
+	s.PosterPath = posterPath
+	return nil
+}
+
+func (r *fakeShowRepo) GetStats(ctx context.Context, showID int64) (*model.ShowStats, error) {
+	if _, ok := r.shows[showID]; !ok {
+		return nil, model.ErrNotFound
+	}
+	return &model.ShowStats{ShowID: showID, TotalSeats: 10, SoldSeats: 5, Revenue: 2500, OccupancyRate: 50.0}, nil
+}
+
+func (r *fakeShowRepo) GenerateSeatMap(ctx context.Context, showID int64, seats []model.Seat) error {
+	if _, ok := r.shows[showID]; !ok {
+		return model.ErrNotFound
+	}
+	return nil
+}
+
+func (r *fakeShowRepo) CancelShow(ctx context.Context, showID int64) error {
+	s, ok := r.shows[showID]
+	if !ok {
+		return model.ErrNotFound
+	}
+	s.Status = model.ShowCancelled
+	return nil
+}
+
 func doGetRequest(handler gin.HandlerFunc, routePath, target string) *httptest.ResponseRecorder {
 	r := gin.New()
 	r.GET(routePath, handler)

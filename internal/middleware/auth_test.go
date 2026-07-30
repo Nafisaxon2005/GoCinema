@@ -8,11 +8,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/raxima/seatpicker/internal/jwtutil"
 )
 
 func generateTestToken(t *testing.T, secret []byte, userID int64, expiresAt time.Time, signingMethod jwt.SigningMethod) string {
 	t.Helper()
-	claims := &Claims{
+	claims := &jwtutil.Claims{
 		UserID: userID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(expiresAt),

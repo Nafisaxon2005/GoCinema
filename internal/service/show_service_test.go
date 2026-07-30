@@ -87,6 +87,55 @@ func (r *fakeShowRepo) CountFreeSeats(ctx context.Context, showID int64) (int, e
 	return r.freeSeats[showID], nil
 }
 
+func (r *fakeShowRepo) Update(ctx context.Context, s *model.Show) error {
+	if _, ok := r.shows[s.ID]; !ok {
+		return model.ErrNotFound
+	}
+	cp := *s
+	r.shows[s.ID] = &cp
+	return nil
+}
+
+func (r *fakeShowRepo) Delete(ctx context.Context, id int64) error {
+	if _, ok := r.shows[id]; !ok {
+		return model.ErrNotFound
+	}
+	delete(r.shows, id)
+	return nil
+}
+
+func (r *fakeShowRepo) UpdatePoster(ctx context.Context, showID int64, posterPath string) error {
+	s, ok := r.shows[showID]
+	if !ok {
+		return model.ErrNotFound
+	}
+	s.PosterPath = posterPath
+	return nil
+}
+
+func (r *fakeShowRepo) GetStats(ctx context.Context, showID int64) (*model.ShowStats, error) {
+	if _, ok := r.shows[showID]; !ok {
+		return nil, model.ErrNotFound
+	}
+	return &model.ShowStats{ShowID: showID, TotalSeats: 10, SoldSeats: 5, Revenue: 2500, OccupancyRate: 50.0}, nil
+}
+
+func (r *fakeShowRepo) GenerateSeatMap(ctx context.Context, showID int64, seats []model.Seat) error {
+	if _, ok := r.shows[showID]; !ok {
+		return model.ErrNotFound
+	}
+	return nil
+}
+
+func (r *fakeShowRepo) CancelShow(ctx context.Context, showID int64) error {
+	s, ok := r.shows[showID]
+	if !ok {
+		return model.ErrNotFound
+	}
+	s.Status = model.ShowCancelled
+	return nil
+}
+
 func contains(haystack, needle string) bool {
 	return len(needle) == 0 ||
 		(len(haystack) >= len(needle) && indexOf(haystack, needle) >= 0)
@@ -217,3 +266,86 @@ func TestShowService_GetByID(t *testing.T) {
 		})
 	}
 }
+
+func TestShowService_Create(t *testing.T) {
+	repo := newFakeShowRepo()
+	svc := NewShowService(repo)
+
+	t.Run("успешное создание сеанса в будущем", func(t *testing.T) {
+		s, err := svc.Create(context.Background(), 10, model.CreateShowInput{
+			Title:    "Интерстеллар",
+			Venue:    "Зал 1",
+			StartsAt: time.Now().Add(48 * time.Hour),
+		})
+		if err != nil {
+			t.Fatalf("неожиданная ошибка: %v", err)
+		}
+		if s.Status != model.ShowDraft {
+			t.Errorf("ожидался статус draft, получено %s", s.Status)
+		}
+		if s.OrganizerID != 10 {
+			t.Errorf("ожидался organizer_id = 10, получено %d", s.OrganizerID)
+		}
+	})
+
+	t.Run("ошибка при прошедшем времени", func(t *testing.T) {
+		_, err := svc.Create(context.Background(), 10, model.CreateShowInput{
+			Title:    "Интерстеллар",
+			Venue:    "Зал 1",
+			StartsAt: time.Now().Add(-1 * time.Hour),
+		})
+		if err != model.ErrInvalid {
+			t.Errorf("ожидалась ошибка ErrInvalid, получено %v", err)
+		}
+	})
+}
+
+func TestShowService_Update_StatusTransitions(t *testing.T) {
+	repo := newFakeShowRepo()
+	svc := NewShowService(repo)
+
+	show, _ := svc.Create(context.Background(), 1, model.CreateShowInput{
+		Title:    "Тест",
+		Venue:    "Зал 1",
+		StartsAt: time.Now().Add(24 * time.Hour),
+	})
+
+	t.Run("чужой пользователь -> 403 Forbidden", func(t *testing.T) {
+		status := model.ShowPublished
+		_, err := svc.Update(context.Background(), 99, show.ID, model.UpdateShowInput{Status: &status})
+		if err != model.ErrForbidden {
+			t.Errorf("ожидалась ошибка ErrForbidden, получено %v", err)
+		}
+	})
+
+	t.Run("draft -> published (разрешено)", func(t *testing.T) {
+		status := model.ShowPublished
+		updated, err := svc.Update(context.Background(), 1, show.ID, model.UpdateShowInput{Status: &status})
+		if err != nil {
+			t.Fatalf("неожиданная ошибка: %v", err)
+		}
+		if updated.Status != model.ShowPublished {
+			t.Errorf("статус должен быть published, получено %s", updated.Status)
+		}
+	})
+
+	t.Run("published -> draft (запрещено)", func(t *testing.T) {
+		status := model.ShowDraft
+		_, err := svc.Update(context.Background(), 1, show.ID, model.UpdateShowInput{Status: &status})
+		if err != model.ErrInvalid {
+			t.Errorf("ожидалась ошибка ErrInvalid, получено %v", err)
+		}
+	})
+
+	t.Run("published -> cancelled (разрешено)", func(t *testing.T) {
+		status := model.ShowCancelled
+		updated, err := svc.Update(context.Background(), 1, show.ID, model.UpdateShowInput{Status: &status})
+		if err != nil {
+			t.Fatalf("неожиданная ошибка: %v", err)
+		}
+		if updated.Status != model.ShowCancelled {
+			t.Errorf("статус должен быть cancelled, получено %s", updated.Status)
+		}
+	})
+}
+

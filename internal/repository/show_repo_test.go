@@ -202,3 +202,63 @@ func TestPgShowRepo_CountFreeSeats(t *testing.T) {
 		t.Errorf("не все ожидания выполнены: %v", err)
 	}
 }
+
+func TestPgShowRepo_GetStats(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatalf("не удалось создать pgxmock: %v", err)
+	}
+	defer mock.Close()
+
+	repo := NewPgShowRepo(mock)
+
+	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM shows WHERE id = \$1\)`).
+		WithArgs(int64(1)).
+		WillReturnRows(pgxmock.NewRows([]string{"exists"}).AddRow(true))
+
+	mock.ExpectQuery(`SELECT\s+COUNT\(\*\) AS total_seats`).
+		WithArgs(int64(1)).
+		WillReturnRows(pgxmock.NewRows([]string{"total_seats", "sold_seats", "revenue"}).
+			AddRow(100, 25, int64(12500)))
+
+	stats, err := repo.GetStats(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if stats.TotalSeats != 100 || stats.SoldSeats != 25 || stats.Revenue != 12500 || stats.OccupancyRate != 25.0 {
+		t.Errorf("некорректная статистика: %+v", stats)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("не все ожидания выполнены: %v", err)
+	}
+}
+
+func TestPgShowRepo_CancelShow(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatalf("не удалось создать pgxmock: %v", err)
+	}
+	defer mock.Close()
+
+	repo := NewPgShowRepo(mock)
+
+	mock.ExpectBegin()
+	mock.ExpectExec(`UPDATE shows SET status`).
+		WithArgs(int64(1), model.ShowCancelled).
+		WillReturnResult(pgxmock.NewResult("UPDATE", 1))
+	mock.ExpectExec(`UPDATE bookings SET status`).
+		WithArgs(int64(1), model.BookingCancelled, model.BookingBooked).
+		WillReturnResult(pgxmock.NewResult("UPDATE", 5))
+	mock.ExpectExec(`UPDATE seats SET status`).
+		WithArgs(int64(1), model.SeatFree).
+		WillReturnResult(pgxmock.NewResult("UPDATE", 10))
+	mock.ExpectCommit()
+
+	if err := repo.CancelShow(context.Background(), 1); err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("не все ожидания выполнены: %v", err)
+	}
+}
+

@@ -7,6 +7,7 @@ import (
 
 	"github.com/raxima/seatpicker/internal/handler"
 	"github.com/raxima/seatpicker/internal/middleware"
+	"github.com/raxima/seatpicker/internal/model"
 	"github.com/raxima/seatpicker/internal/repository"
 	"github.com/raxima/seatpicker/internal/service"
 )
@@ -47,8 +48,16 @@ func New(db DB, logger *slog.Logger, authCfg service.AuthConfig) *gin.Engine {
 	shows := r.Group("/shows")
 	shows.GET("", showHandler.List)
 	shows.GET("/:id", showHandler.GetByID)
+	shows.GET("/:id/poster", showHandler.GetPoster)
 
-	// TODO: сюда подключаются роуты дорожек A/B/C.
+	protected := shows.Group("", middleware.AuthMiddleware(authCfg.JWTSecret), middleware.RequireRole(model.RoleOrganizer, model.RoleAdmin))
+	protected.POST("", showHandler.Create)
+	protected.PUT("/:id", showHandler.Update)
+	protected.DELETE("/:id", showHandler.Delete)
+	protected.POST("/:id/poster", showHandler.UploadPoster)
+	protected.POST("/:id/seatmap", showHandler.GenerateSeatMap)
+	protected.GET("/:id/stats", showHandler.GetStats)
+	protected.PUT("/:id/cancel", showHandler.Cancel)
 
 	return r
 }

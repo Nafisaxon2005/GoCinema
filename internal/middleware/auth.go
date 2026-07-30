@@ -5,13 +5,9 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt/v5"
+	"github.com/raxima/seatpicker/internal/jwtutil"
+	"github.com/raxima/seatpicker/internal/model"
 )
-
-type Claims struct {
-	UserID int64 `json:"userId"`
-	jwt.RegisteredClaims
-}
 
 func AuthMiddleware(secret []byte) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -28,19 +24,40 @@ func AuthMiddleware(secret []byte) gin.HandlerFunc {
 		}
 		tokenString := parts[1]
 
-		claims := &Claims{}
-		token, err := jwt.ParseWithClaims(tokenString, claims, func(t *jwt.Token) (interface{}, error) {
-			if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, jwt.ErrSignatureInvalid
-			}
-			return secret, nil
-		})
-		if err != nil || !token.Valid {
+		claims, err := jwtutil.ParseAccess(tokenString, secret)
+		if err != nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired token"})
 			return
 		}
 
 		c.Set("userID", claims.UserID)
+		c.Set("role", claims.Role)
 		c.Next()
 	}
 }
+
+func RequireRole(allowedRoles ...model.Role) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		roleVal, exists := c.Get("role")
+		if !exists {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			return
+		}
+
+		userRole, ok := roleVal.(model.Role)
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+			return
+		}
+
+		for _, r := range allowedRoles {
+			if userRole == r {
+				c.Next()
+				return
+			}
+		}
+
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+	}
+}
+
