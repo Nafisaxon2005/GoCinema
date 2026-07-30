@@ -262,3 +262,73 @@ func TestPgShowRepo_CancelShow(t *testing.T) {
 	}
 }
 
+func TestPgShowRepo_Update_Delete_Poster_SeatMap(t *testing.T) {
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatalf("не удалось создать pgxmock: %v", err)
+	}
+	defer mock.Close()
+
+	repo := NewPgShowRepo(mock)
+	now := time.Now()
+
+	t.Run("Update", func(t *testing.T) {
+		mock.ExpectExec(`UPDATE shows SET title`).
+			WithArgs(int64(1), "Дюна 2", "Зал 1", now, model.ShowPublished).
+			WillReturnResult(pgxmock.NewResult("UPDATE", 1))
+
+		err := repo.Update(context.Background(), &model.Show{
+			ID: 1, Title: "Дюна 2", Venue: "Зал 1", StartsAt: now, Status: model.ShowPublished,
+		})
+		if err != nil {
+			t.Fatalf("неожиданная ошибка: %v", err)
+		}
+	})
+
+	t.Run("Delete", func(t *testing.T) {
+		mock.ExpectExec(`DELETE FROM shows WHERE id = \$1`).
+			WithArgs(int64(1)).
+			WillReturnResult(pgxmock.NewResult("DELETE", 1))
+
+		err := repo.Delete(context.Background(), 1)
+		if err != nil {
+			t.Fatalf("неожиданная ошибка: %v", err)
+		}
+	})
+
+	t.Run("UpdatePoster", func(t *testing.T) {
+		mock.ExpectExec(`UPDATE shows SET poster_path`).
+			WithArgs(int64(1), "new_poster.jpg").
+			WillReturnResult(pgxmock.NewResult("UPDATE", 1))
+
+		err := repo.UpdatePoster(context.Background(), 1, "new_poster.jpg")
+		if err != nil {
+			t.Fatalf("неожиданная ошибка: %v", err)
+		}
+	})
+
+	t.Run("GenerateSeatMap", func(t *testing.T) {
+		mock.ExpectQuery(`SELECT COUNT\(\*\) FROM seats WHERE show_id = \$1 AND status = 'booked'`).
+			WithArgs(int64(1)).
+			WillReturnRows(pgxmock.NewRows([]string{"count"}).AddRow(0))
+
+		mock.ExpectExec(`DELETE FROM seats WHERE show_id = \$1`).
+			WithArgs(int64(1)).
+			WillReturnResult(pgxmock.NewResult("DELETE", 0))
+
+		mock.ExpectExec(`INSERT INTO seats`).
+			WithArgs(int64(1), 1, 1, int64(500), model.SeatFree, int64(1), 1, 2, int64(500), model.SeatFree).
+			WillReturnResult(pgxmock.NewResult("INSERT", 2))
+
+		seats := []model.Seat{
+			{Row: 1, Num: 1, Price: 500},
+			{Row: 1, Num: 2, Price: 500},
+		}
+		err := repo.GenerateSeatMap(context.Background(), 1, seats)
+		if err != nil {
+			t.Fatalf("неожиданная ошибка: %v", err)
+		}
+	})
+}
+
+

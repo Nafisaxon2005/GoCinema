@@ -349,3 +349,67 @@ func TestShowService_Update_StatusTransitions(t *testing.T) {
 	})
 }
 
+func TestShowService_Delete_Poster_SeatMap_Stats_Cancel(t *testing.T) {
+	repo := newFakeShowRepo()
+	svc := NewShowService(repo)
+
+	show, _ := svc.Create(context.Background(), 10, model.CreateShowInput{
+		Title:    "Фильм 1",
+		Venue:    "Зал A",
+		StartsAt: time.Now().Add(24 * time.Hour),
+	})
+
+	t.Run("UploadPoster и GetPosterPath", func(t *testing.T) {
+		_, err := svc.UploadPoster(context.Background(), 99, show.ID, "poster.jpg")
+		if err != model.ErrForbidden {
+			t.Errorf("ожидалось 403 Forbidden, получено %v", err)
+		}
+
+		updated, err := svc.UploadPoster(context.Background(), 10, show.ID, "poster.jpg")
+		if err != nil || updated.PosterPath != "poster.jpg" {
+			t.Errorf("не удалось обновить постер: %v", err)
+		}
+
+		path, err := svc.GetPosterPath(context.Background(), show.ID)
+		if err != nil || path != "poster.jpg" {
+			t.Errorf("ошибка получения постера: %v", err)
+		}
+	})
+
+	t.Run("GenerateSeatMap", func(t *testing.T) {
+		err := svc.GenerateSeatMap(context.Background(), 10, show.ID, model.GenerateSeatMapInput{
+			Rows:        5,
+			SeatsPerRow: 10,
+			Price:       500,
+			Zones: []model.SeatMapZone{
+				{FromRow: 1, ToRow: 2, Price: 1000},
+			},
+		})
+		if err != nil {
+			t.Errorf("неожиданная ошибка генерации схемы зала: %v", err)
+		}
+	})
+
+	t.Run("GetStats", func(t *testing.T) {
+		stats, err := svc.GetStats(context.Background(), 10, show.ID)
+		if err != nil || stats == nil {
+			t.Errorf("неожиданная ошибка получения статистики: %v", err)
+		}
+	})
+
+	t.Run("CancelShow", func(t *testing.T) {
+		err := svc.CancelShow(context.Background(), 10, show.ID)
+		if err != nil {
+			t.Errorf("неожиданная ошибка отмены сеанса: %v", err)
+		}
+	})
+
+	t.Run("Delete", func(t *testing.T) {
+		err := svc.Delete(context.Background(), 10, show.ID)
+		if err != nil {
+			t.Errorf("неожиданная ошибка удаления: %v", err)
+		}
+	})
+}
+
+

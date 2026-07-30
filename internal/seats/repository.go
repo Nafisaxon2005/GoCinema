@@ -7,15 +7,22 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/raxima/seatpicker/internal/model"
 )
 
-type Repository struct {
-	pool *pgxpool.Pool
+type Pool interface {
+	Begin(ctx context.Context) (pgx.Tx, error)
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
-func NewRepository(pool *pgxpool.Pool) *Repository {
+type Repository struct {
+	pool Pool
+}
+
+func NewRepository(pool Pool) *Repository {
 	return &Repository{pool: pool}
 }
 

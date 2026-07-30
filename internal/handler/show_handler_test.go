@@ -1,9 +1,13 @@
 package handler
 
 import (
+	"bytes"
 	"context"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
+	"strings"
 	"testing"
 	"time"
 
@@ -183,6 +187,189 @@ func TestShowHandler_GetByID(t *testing.T) {
 	}
 }
 
+func TestShowHandler_OrganizerEndpoints(t *testing.T) {
+	repo := newFakeShowRepo()
+	svc := service.NewShowService(repo)
+	h := NewShowHandler(svc)
+
+	showID, _ := repo.Create(context.Background(), &model.Show{
+		OrganizerID: 10,
+		Title:       "Фильм",
+		Venue:       "Зал 1",
+		StartsAt:    time.Now().Add(24 * time.Hour),
+		Status:      model.ShowDraft,
+	})
+
+	doPostJSON := func(handler gin.HandlerFunc, routePath, target string, body string, userID int64) *httptest.ResponseRecorder {
+		r := gin.New()
+		r.POST(routePath, func(c *gin.Context) {
+			if userID > 0 {
+				c.Set("userID", userID)
+			}
+			handler(c)
+		})
+		req := httptest.NewRequest(http.MethodPost, target, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w
+	}
+
+	doPutJSON := func(handler gin.HandlerFunc, routePath, target string, body string, userID int64) *httptest.ResponseRecorder {
+		r := gin.New()
+		r.PUT(routePath, func(c *gin.Context) {
+			if userID > 0 {
+				c.Set("userID", userID)
+			}
+			handler(c)
+		})
+		req := httptest.NewRequest(http.MethodPut, target, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w
+	}
+
+	doDeleteReq := func(handler gin.HandlerFunc, routePath, target string, userID int64) *httptest.ResponseRecorder {
+		r := gin.New()
+		r.DELETE(routePath, func(c *gin.Context) {
+			if userID > 0 {
+				c.Set("userID", userID)
+			}
+			handler(c)
+		})
+		req := httptest.NewRequest(http.MethodDelete, target, nil)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w
+	}
+
+	t.Run("Create - 401 without auth", func(t *testing.T) {
+		w := doPostJSON(h.Create, "/shows", "/shows", `{"title":"A","venue":"B"}`, 0)
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("expected 401, got %d", w.Code)
+		}
+	})
+
+	t.Run("Create - 201 Created", func(t *testing.T) {
+		future := time.Now().Add(48 * time.Hour).Format(time.RFC3339)
+		body := `{"title":"Новый","venue":"Зал 2","starts_at":"` + future + `"}`
+		w := doPostJSON(h.Create, "/shows", "/shows", body, 10)
+		if w.Code != http.StatusCreated {
+			t.Errorf("expected 201, got %d, body: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("Update - 200 OK", func(t *testing.T) {
+		body := `{"title":"Обновлённый"}`
+		w := doPutJSON(h.Update, "/shows/:id", "/shows/"+itoa(showID), body, 10)
+		if w.Code != http.StatusOK {
+			t.Errorf("expected 200, got %d", w.Code)
+		}
+	})
+
+	t.Run("Update - 403 Forbidden for non-owner", func(t *testing.T) {
+		body := `{"title":"Обновлённый"}`
+		w := doPutJSON(h.Update, "/shows/:id", "/shows/"+itoa(showID), body, 999)
+		if w.Code != http.StatusForbidden {
+			t.Errorf("expected 403, got %d", w.Code)
+		}
+	})
+
+	t.Run("Delete - 204 No Content", func(t *testing.T) {
+		w := doDeleteReq(h.Delete, "/shows/:id", "/shows/"+itoa(showID), 10)
+		if w.Code != http.StatusNoContent {
+			t.Errorf("expected 204, got %d", w.Code)
+		}
+	})
+
+	t.Run("GenerateSeatMap - 200 OK", func(t *testing.T) {
+		newID, _ := repo.Create(context.Background(), &model.Show{OrganizerID: 10, StartsAt: time.Now().Add(time.Hour)})
+		body := `{"rows":5,"seats_per_row":10,"price":500}`
+		w := doPostJSON(h.GenerateSeatMap, "/shows/:id/seatmap", "/shows/"+itoa(newID)+"/seatmap", body, 10)
+		if w.Code != http.StatusOK {
+			t.Errorf("expected 200, got %d", w.Code)
+		}
+	})
+
+	t.Run("GetStats - 200 OK", func(t *testing.T) {
+		newID, _ := repo.Create(context.Background(), &model.Show{OrganizerID: 10, StartsAt: time.Now().Add(time.Hour)})
+		r := gin.New()
+		r.GET("/shows/:id/stats", func(c *gin.Context) {
+			c.Set("userID", int64(10))
+			h.GetStats(c)
+		})
+		req := httptest.NewRequest(http.MethodGet, "/shows/"+itoa(newID)+"/stats", nil)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Errorf("expected 200, got %d", w.Code)
+		}
+	})
+
+	t.Run("Cancel - 200 OK", func(t *testing.T) {
+		newID, _ := repo.Create(context.Background(), &model.Show{OrganizerID: 10, StartsAt: time.Now().Add(time.Hour)})
+		w := doPutJSON(h.Cancel, "/shows/:id/cancel", "/shows/"+itoa(newID)+"/cancel", "", 10)
+		if w.Code != http.StatusOK {
+			t.Errorf("expected 200, got %d", w.Code)
+		}
+	})
+
+	t.Run("UploadPoster - multipart upload & GetPoster", func(t *testing.T) {
+		newID, _ := repo.Create(context.Background(), &model.Show{OrganizerID: 10, StartsAt: time.Now().Add(time.Hour)})
+
+		var body bytes.Buffer
+		mw := multipart.NewWriter(&body)
+		hHeader := make(textproto.MIMEHeader)
+		hHeader.Set("Content-Disposition", `form-data; name="poster"; filename="test.png"`)
+		hHeader.Set("Content-Type", "image/png")
+		part, _ := mw.CreatePart(hHeader)
+		part.Write([]byte("fake-image-bytes"))
+		mw.Close()
+
+		r := gin.New()
+		r.POST("/shows/:id/poster", func(c *gin.Context) {
+			c.Set("userID", int64(10))
+			h.UploadPoster(c)
+		})
+
+		req := httptest.NewRequest(http.MethodPost, "/shows/"+itoa(newID)+"/poster", &body)
+		req.Header.Set("Content-Type", mw.FormDataContentType())
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("expected 200, got %d, body: %s", w.Code, w.Body.String())
+		}
+
+		// Test GetPoster
+		rGet := gin.New()
+		rGet.GET("/shows/:id/poster", h.GetPoster)
+		reqGet := httptest.NewRequest(http.MethodGet, "/shows/"+itoa(newID)+"/poster", nil)
+		wGet := httptest.NewRecorder()
+		rGet.ServeHTTP(wGet, reqGet)
+
+		if wGet.Code != http.StatusOK {
+			t.Errorf("expected 200 for GetPoster, got %d", wGet.Code)
+		}
+	})
+
+	t.Run("Invalid ID parameters -> 400 Bad Request", func(t *testing.T) {
+		if w := doPutJSON(h.Update, "/shows/:id", "/shows/abc", `{}`, 10); w.Code != http.StatusBadRequest {
+			t.Errorf("expected 400, got %d", w.Code)
+		}
+		if w := doDeleteReq(h.Delete, "/shows/:id", "/shows/abc", 10); w.Code != http.StatusBadRequest {
+			t.Errorf("expected 400, got %d", w.Code)
+		}
+		if w := doPostJSON(h.GenerateSeatMap, "/shows/:id/seatmap", "/shows/abc/seatmap", `{}`, 10); w.Code != http.StatusBadRequest {
+			t.Errorf("expected 400, got %d", w.Code)
+		}
+		if w := doPutJSON(h.Cancel, "/shows/:id/cancel", "/shows/abc/cancel", `{}`, 10); w.Code != http.StatusBadRequest {
+			t.Errorf("expected 400, got %d", w.Code)
+		}
+	})
+}
+
 func itoa(n int64) string {
 	if n == 0 {
 		return "0"
@@ -204,3 +391,4 @@ func itoa(n int64) string {
 	}
 	return string(buf[i:])
 }
+

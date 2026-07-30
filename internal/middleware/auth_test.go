@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/raxima/seatpicker/internal/jwtutil"
+	"github.com/raxima/seatpicker/internal/model"
 )
 
 func generateTestToken(t *testing.T, secret []byte, userID int64, expiresAt time.Time, signingMethod jwt.SigningMethod) string {
@@ -133,3 +134,59 @@ func TestAuthMiddleware(t *testing.T) {
 		}
 	})
 }
+
+func TestRequireRole(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	t.Run("роль отсутствует в контексте -> 401", func(t *testing.T) {
+		r := gin.New()
+		r.GET("/organizer", RequireRole("organizer"), func(c *gin.Context) {
+			c.Status(http.StatusOK)
+		})
+
+		req := httptest.NewRequest(http.MethodGet, "/organizer", nil)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("статус = %d, ожидалось 401", w.Code)
+		}
+	})
+
+	t.Run("неподходящая роль -> 403", func(t *testing.T) {
+		r := gin.New()
+		r.GET("/organizer", func(c *gin.Context) {
+			c.Set("role", model.RoleViewer)
+			c.Next()
+		}, RequireRole(model.RoleOrganizer), func(c *gin.Context) {
+			c.Status(http.StatusOK)
+		})
+
+		req := httptest.NewRequest(http.MethodGet, "/organizer", nil)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+
+		if w.Code != http.StatusForbidden {
+			t.Errorf("статус = %d, ожидалось 403", w.Code)
+		}
+	})
+
+	t.Run("подходящая роль -> 200", func(t *testing.T) {
+		r := gin.New()
+		r.GET("/organizer", func(c *gin.Context) {
+			c.Set("role", model.RoleOrganizer)
+			c.Next()
+		}, RequireRole(model.RoleOrganizer), func(c *gin.Context) {
+			c.Status(http.StatusOK)
+		})
+
+		req := httptest.NewRequest(http.MethodGet, "/organizer", nil)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("статус = %d, ожидалось 200", w.Code)
+		}
+	})
+}
+
