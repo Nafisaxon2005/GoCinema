@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/raxima/seatpicker/internal/model"
 )
 
 type Handler struct {
@@ -94,4 +95,48 @@ func (h *Handler) Cancel(c *gin.Context) {
 	default:
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 	}
+}
+
+// GetMyBookings handles GET /bookings
+func (h *Handler) GetMyBookings(c *gin.Context) {
+	userIDVal, ok := c.Get("userID")
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	userID := userIDVal.(int64)
+
+	// Читаем параметры фильтрации и пагинации из query string
+	status := c.Query("status")
+	date := c.Query("date")
+
+	limit := 10
+	if l := c.Query("limit"); l != "" {
+		if parsedLimit, err := strconv.Atoi(l); err == nil {
+			limit = parsedLimit
+		}
+	}
+
+	offset := 0
+	if o := c.Query("offset"); o != "" {
+		if parsedOffset, err := strconv.Atoi(o); err == nil {
+			offset = parsedOffset
+		}
+	}
+
+	filter := model.BookingFilter{
+		UserID: userID,
+		Status: status,
+		Date:   date,
+		Limit:  limit,
+		Offset: offset,
+	}
+
+	bookings, err := h.repo.GetUserBookings(c.Request.Context(), filter)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+		return
+	}
+
+	c.JSON(http.StatusOK, bookings)
 }

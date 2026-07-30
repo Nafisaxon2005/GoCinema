@@ -6,7 +6,7 @@
   <component name="ChangeListManager">
     <list default="true" id="80cfc9f4-74f4-4727-9071-0825363a58d6" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/internal/router/router.go" beforeDir="false" afterPath="$PROJECT_DIR$/internal/router/router.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/internal/model/model.go" beforeDir="false" afterPath="$PROJECT_DIR$/internal/model/model.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/internal/seats/handler.go" beforeDir="false" afterPath="$PROJECT_DIR$/internal/seats/handler.go" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/internal/seats/repository.go" beforeDir="false" afterPath="$PROJECT_DIR$/internal/seats/repository.go" afterDir="false" />
     </list>
@@ -49,7 +49,7 @@
     "SHARE_PROJECT_CONFIGURATION_FILES": "true",
     "codeWithMe.voiceChat.enabledByDefault": "false",
     "com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1": "true",
-    "git-widget-placeholder": "feature/A-04",
+    "git-widget-placeholder": "feature/A-06",
     "go.sdk.automatically.set": "true",
     "junie.onboarding.icon.badge.shown": "true",
     "last_opened_file_path": "/Users/nababdu1/GolandProjects/GoCinema/migrations",

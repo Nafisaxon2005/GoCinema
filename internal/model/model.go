@@ -70,7 +70,22 @@ type Booking struct {
 	Status    BookingStatus `json:"status" db:"status"`
 	CreatedAt time.Time     `json:"created_at" db:"created_at"`
 }
+type BookingFilter struct {
+	UserID int64
+	Status string
+	Date   string
+	Limit  int
+	Offset int
+}
 
+type BookingResponse struct {
+	ID        int64  `json:"id"`
+	ShowID    int64  `json:"showId"`
+	SeatID    int64  `json:"seatId"`
+	CreatedAt string `json:"createdAt"`
+	ShowDate  string `json:"showDate"`
+	Status    string `json:"status"`
+}
 type ShowDetail struct {
 	Show
 	FreeSeats int `json:"free_seats"`
