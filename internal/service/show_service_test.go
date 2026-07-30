@@ -45,7 +45,7 @@ func (r *fakeShowRepo) List(ctx context.Context, f repository.ShowListFilter) ([
 	if r.listErr != nil {
 		return nil, 0, r.listErr
 	}
-	var result []model.Show
+	result := make([]model.Show, 0)
 	for _, s := range r.shows {
 		if s.Status != f.Status {
 			continue
