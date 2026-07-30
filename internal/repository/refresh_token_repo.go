@@ -6,15 +6,15 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/raxima/seatpicker/internal/model"
 )
 
 type PgRefreshTokenRepo struct {
-	db *pgxpool.Pool
+	db DBTX
 }
 
-func NewPgRefreshTokenRepo(db *pgxpool.Pool) *PgRefreshTokenRepo {
+func NewPgRefreshTokenRepo(db DBTX) *PgRefreshTokenRepo {
 	return &PgRefreshTokenRepo{db: db}
 }
 

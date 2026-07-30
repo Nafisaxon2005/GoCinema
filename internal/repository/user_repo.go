@@ -7,7 +7,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/raxima/seatpicker/internal/middleware"
 	"github.com/raxima/seatpicker/internal/model"
@@ -16,11 +15,11 @@ import (
 const uniqueViolationCode = "23505"
 
 type PgUserRepo struct {
-	db     *pgxpool.Pool
+	db     DBTX
 	logger *slog.Logger
 }
 
-func NewPgUserRepo(db *pgxpool.Pool, logger *slog.Logger) *PgUserRepo {
+func NewPgUserRepo(db DBTX, logger *slog.Logger) *PgUserRepo {
 	return &PgUserRepo{db: db, logger: logger}
 }
 

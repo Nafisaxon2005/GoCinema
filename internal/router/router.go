@@ -4,7 +4,6 @@ import (
 	"log/slog"
 
 	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/raxima/seatpicker/internal/handler"
 	"github.com/raxima/seatpicker/internal/middleware"
@@ -12,7 +11,15 @@ import (
 	"github.com/raxima/seatpicker/internal/service"
 )
 
-func New(db *pgxpool.Pool, logger *slog.Logger, authCfg service.AuthConfig) *gin.Engine {
+// DB объединяет то, что нужно репозиториям (DBTX), и то, что нужно
+// health-проверке (Pinger). *pgxpool.Pool реализует оба интерфейса,
+// как и pgxmock.PgxPoolIface — в тестах.
+type DB interface {
+	repository.DBTX
+	handler.Pinger
+}
+
+func New(db DB, logger *slog.Logger, authCfg service.AuthConfig) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Recovery())
 

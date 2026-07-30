@@ -4,6 +4,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/raxima/seatpicker/internal/model"
 )
 
@@ -49,4 +51,10 @@ type RefreshTokenRepo interface {
 	GetByHash(ctx context.Context, hash string) (*model.RefreshToken, error)
 	Revoke(ctx context.Context, id int64) error
 	RevokeAllForUser(ctx context.Context, userID int64) error
+}
+
+type DBTX interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }

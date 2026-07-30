@@ -7,20 +7,28 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/raxima/seatpicker/internal/middleware"
 )
 
+// Pinger — минимальный интерфейс для проверки доступности БД.
+// *pgxpool.Pool уже реализует Ping(ctx) error, так что реальный код
+// не меняется — меняется только тип поля здесь.
+type Pinger interface {
+	Ping(ctx context.Context) error
+}
+
 type HealthHandler struct {
-	DB     *pgxpool.Pool
+	DB     Pinger
 	logger *slog.Logger
 }
 
-func NewHealthHandler(db *pgxpool.Pool, logger *slog.Logger) *HealthHandler {
+func NewHealthHandler(db Pinger, logger *slog.Logger) *HealthHandler {
 	return &HealthHandler{DB: db, logger: logger}
 }
 
+// GET /health — критерий J-01: docker compose up --build поднимает app+postgres,
+// GET /health -> 200.
 func (h *HealthHandler) Health(c *gin.Context) {
 	log := h.logger.With(
 		"layer", "handler",

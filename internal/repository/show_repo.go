@@ -7,16 +7,15 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/raxima/seatpicker/internal/model"
 )
 
 type PgShowRepo struct {
-	db *pgxpool.Pool
+	db DBTX
 }
 
-func NewPgShowRepo(db *pgxpool.Pool) *PgShowRepo {
+func NewPgShowRepo(db DBTX) *PgShowRepo {
 	return &PgShowRepo{db: db}
 }
 
