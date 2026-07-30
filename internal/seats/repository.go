@@ -67,3 +67,42 @@ func (r *Repository) BookSeat(ctx context.Context, showID, seatID, userID int64)
 	}
 	return bookingID, nil
 }
+
+func (r *Repository) CancelBooking(ctx context.Context, bookingID, userID int64) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+
+	defer tx.Rollback(ctx)
+
+	var ownerID int64
+	var seatID int64
+
+	// Получает данные о бронировании, чтобы проверить владельца и получить ID места.
+	err = tx.QueryRow(ctx, `SELECT user_id, seat_id FROM bookings WHERE id = $1`, bookingID).Scan(&ownerID, &seatID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrBookingNotFound
+		}
+		return err
+	}
+	// Verify that the user cancelling the booking is the actual owner
+	if ownerID != userID {
+		return ErrForbidden
+	}
+
+	// Delete the booking record
+	_, err = tx.Exec(ctx, `DELETE FROM bookings WHERE id = $1`, bookingID)
+	if err != nil {
+		return err
+	}
+
+	// Free the seat
+	_, err = tx.Exec(ctx, `UPDATE seats SET status = 'free' WHERE id = $1`, seatID)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
+}

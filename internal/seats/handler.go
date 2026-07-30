@@ -48,3 +48,33 @@ func (h *Handler) Book(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 	}
 }
+
+// Cancel handles DELETE /bookings/:bookingId
+func (h *Handler) Cancel(c *gin.Context) {
+	bookingID, err := strconv.ParseInt(c.Param("bookingId"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid booking id"})
+		return
+	}
+
+	userIDVal, ok := c.Get("userID")
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	userID := userIDVal.(int64)
+
+	err = h.repo.CancelBooking(c.Request.Context(), bookingID, userID)
+	switch {
+	case err == nil:
+		// 204 No Content is standard for successful DELETE operations
+		c.Status(http.StatusNoContent)
+	case errors.Is(err, ErrBookingNotFound):
+		c.JSON(http.StatusNotFound, gin.H{"error": "booking not found"})
+	case errors.Is(err, ErrForbidden):
+		c.JSON(http.StatusForbidden, gin.H{"error": "ErrForbidden"})
+	default:
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+	}
+}
