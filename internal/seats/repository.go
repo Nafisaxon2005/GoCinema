@@ -3,6 +3,8 @@ package seats
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -139,4 +141,69 @@ func (r *Repository) GetShowSeats(ctx context.Context, showID int64) ([]model.Se
 	}
 
 	return seats, nil
+}
+
+// GetUserBookings retrieves user bookings with optional filters (status, date) and pagination.
+func (r *Repository) GetUserBookings(ctx context.Context, filter model.BookingFilter) ([]model.BookingResponse, error) {
+	query := `
+		SELECT b.id, b.show_id, b.seat_id, b.created_at, s.date, s.status 
+		FROM bookings b
+		JOIN shows s ON b.show_id = s.id
+		WHERE b.user_id = $1
+	`
+	args := []interface{}{filter.UserID}
+	argID := 2
+	var conditions []string
+
+	if filter.Status != "" {
+		conditions = append(conditions, fmt.Sprintf("s.status = $%d", argID))
+		args = append(args, filter.Status)
+		argID++
+	}
+
+	if filter.Date != "" {
+		conditions = append(conditions, fmt.Sprintf("s.date::text LIKE $%d", argID))
+		args = append(args, "%"+filter.Date+"%")
+		argID++
+	}
+
+	if len(conditions) > 0 {
+		query += " AND " + strings.Join(conditions, " AND ")
+	}
+
+	// Дефолтные значения для пагинации, если не переданы
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = 10
+	}
+	offset := filter.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
+	query += fmt.Sprintf(" ORDER BY b.created_at DESC LIMIT $%d OFFSET $%d", argID, argID+1)
+	args = append(args, limit, offset)
+
+	rows, err := r.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var bookings []model.BookingResponse
+	for rows.Next() {
+		var b model.BookingResponse
+		var createdAt interface{}
+		var showDate interface{}
+
+		if err := rows.Scan(&b.ID, &b.ShowID, &b.SeatID, &createdAt, &showDate, &b.Status); err != nil {
+			return nil, err
+		}
+
+		b.CreatedAt = fmt.Sprintf("%v", createdAt)
+		b.ShowDate = fmt.Sprintf("%v", showDate)
+		bookings = append(bookings, b)
+	}
+
+	return bookings, rows.Err()
 }

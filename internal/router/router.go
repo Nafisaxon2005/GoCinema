@@ -61,6 +61,7 @@ func New(db *pgxpool.Pool, cfg Config) *gin.Engine {
 	protected.POST("/shows/:id/seats/:seatId/book", seatsHandler.Book)
 	// A-03: Отменить бронь
 	protected.DELETE("/bookings/:bookingId", seatsHandler.Cancel)
-
+	// A-06: История билетов пользователя с пагинацией и фильтрами
+	protected.GET("/bookings", seatsHandler.GetMyBookings)
 	return r
 }
