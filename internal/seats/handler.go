@@ -49,6 +49,23 @@ func (h *Handler) Book(c *gin.Context) {
 	}
 }
 
+// GetSeats handles GET /shows/:id/seats
+func (h *Handler) GetSeats(c *gin.Context) {
+	showID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid show id"})
+		return
+	}
+
+	seats, err := h.repo.GetShowSeats(c.Request.Context(), showID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+		return
+	}
+
+	c.JSON(http.StatusOK, seats)
+}
+
 // Cancel handles DELETE /bookings/:bookingId
 func (h *Handler) Cancel(c *gin.Context) {
 	bookingID, err := strconv.ParseInt(c.Param("bookingId"), 10, 64)

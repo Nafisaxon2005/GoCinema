@@ -6,6 +6,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/raxima/seatpicker/internal/model"
 )
 
 type Repository struct {
@@ -68,6 +69,7 @@ func (r *Repository) BookSeat(ctx context.Context, showID, seatID, userID int64)
 	return bookingID, nil
 }
 
+// CancelBooking atomically deletes a booking and frees the associated seat.
 func (r *Repository) CancelBooking(ctx context.Context, bookingID, userID int64) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
@@ -79,7 +81,7 @@ func (r *Repository) CancelBooking(ctx context.Context, bookingID, userID int64)
 	var ownerID int64
 	var seatID int64
 
-	// Получает данные о бронировании, чтобы проверить владельца и получить ID места.
+	// Fetch the booking details to verify ownership and get the seat ID
 	err = tx.QueryRow(ctx, `SELECT user_id, seat_id FROM bookings WHERE id = $1`, bookingID).Scan(&ownerID, &seatID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -87,6 +89,7 @@ func (r *Repository) CancelBooking(ctx context.Context, bookingID, userID int64)
 		}
 		return err
 	}
+
 	// Verify that the user cancelling the booking is the actual owner
 	if ownerID != userID {
 		return ErrForbidden
@@ -105,4 +108,35 @@ func (r *Repository) CancelBooking(ctx context.Context, bookingID, userID int64)
 	}
 
 	return tx.Commit(ctx)
+}
+
+// GetShowSeats retrieves all seats for a specific show.
+func (r *Repository) GetShowSeats(ctx context.Context, showID int64) ([]model.Seat, error) {
+	query := `
+		SELECT id, show_id, row, num, price, status 
+		FROM seats 
+		WHERE show_id = $1 
+		ORDER BY row, num
+	`
+
+	rows, err := r.pool.Query(ctx, query, showID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var seats []model.Seat
+	for rows.Next() {
+		var s model.Seat
+		if err := rows.Scan(&s.ID, &s.ShowID, &s.Row, &s.Num, &s.Price, &s.Status); err != nil {
+			return nil, err
+		}
+		seats = append(seats, s)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return seats, nil
 }

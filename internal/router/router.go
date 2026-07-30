@@ -52,11 +52,14 @@ func New(db *pgxpool.Pool, cfg Config) *gin.Engine {
 	// TODO: сюда подключаются роуты дорожек A/B/C.
 	seatsRepo := seats.NewRepository(db)
 	seatsHandler := seats.NewHandler(seatsRepo)
-
+	// A-04: Публичный эндпоинт для получения карты мест сеанса
+	shows.GET("/:id/seats", seatsHandler.GetSeats)
+	// Защищенные роуты требуют авторизации
 	protected := r.Group("/")
 	protected.Use(middleware.Auth(cfg.JWTSecret))
-
+	// A-02: Занять место
 	protected.POST("/shows/:id/seats/:seatId/book", seatsHandler.Book)
+	// A-03: Отменить бронь
 	protected.DELETE("/bookings/:bookingId", seatsHandler.Cancel)
 
 	return r
