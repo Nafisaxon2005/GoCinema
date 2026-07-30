@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/raxima/seatpicker/internal/middleware"
+	"github.com/raxima/seatpicker/internal/seats"
 
 	"github.com/raxima/seatpicker/internal/handler"
 	"github.com/raxima/seatpicker/internal/repository"
@@ -49,6 +50,17 @@ func New(db *pgxpool.Pool, cfg Config) *gin.Engine {
 	shows.GET("/:id", showHandler.GetByID)
 
 	// TODO: сюда подключаются роуты дорожек A/B/C.
-	_ = middleware.Auth
+	seatsRepo := seats.NewRepository(db)
+	seatsHandler := seats.NewHandler(seatsRepo)
+	// A-04: Публичный эндпоинт для получения карты мест сеанса
+	shows.GET("/:id/seats", seatsHandler.GetSeats)
+	// Защищенные роуты требуют авторизации
+	protected := r.Group("/")
+	protected.Use(middleware.Auth(cfg.JWTSecret))
+	// A-02: Занять место
+	protected.POST("/shows/:id/seats/:seatId/book", seatsHandler.Book)
+	// A-03: Отменить бронь
+	protected.DELETE("/bookings/:bookingId", seatsHandler.Cancel)
+
 	return r
 }
