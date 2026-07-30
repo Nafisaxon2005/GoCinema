@@ -1,19 +1,30 @@
 package seats
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+
 	"github.com/raxima/seatpicker/internal/model"
 )
 
-type Handler struct {
-	repo *Repository
+// Booker — интерфейс над Repository, чтобы Handler можно было тестировать
+// без реальной БД (подменяя fake-реализацией в тестах).
+type Booker interface {
+	BookSeat(ctx context.Context, showID, seatID, userID int64) (int64, error)
+	CancelBooking(ctx context.Context, bookingID, userID int64) error
+	GetShowSeats(ctx context.Context, showID int64) ([]model.Seat, error)
+	GetUserBookings(ctx context.Context, filter model.BookingFilter) ([]model.BookingResponse, error)
 }
 
-func NewHandler(repo *Repository) *Handler {
+type Handler struct {
+	repo Booker
+}
+
+func NewHandler(repo Booker) *Handler {
 	return &Handler{repo: repo}
 }
 
@@ -86,7 +97,6 @@ func (h *Handler) Cancel(c *gin.Context) {
 	err = h.repo.CancelBooking(c.Request.Context(), bookingID, userID)
 	switch {
 	case err == nil:
-		// 204 No Content is standard for successful DELETE operations
 		c.Status(http.StatusNoContent)
 	case errors.Is(err, ErrBookingNotFound):
 		c.JSON(http.StatusNotFound, gin.H{"error": "booking not found"})
@@ -106,7 +116,6 @@ func (h *Handler) GetMyBookings(c *gin.Context) {
 	}
 	userID := userIDVal.(int64)
 
-	// Читаем параметры фильтрации и пагинации из query string
 	status := c.Query("status")
 	date := c.Query("date")
 
