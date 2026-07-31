@@ -2,14 +2,19 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"log"
+	"log/slog"
+	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/raxima/seatpicker/internal/router"
+	"github.com/raxima/seatpicker/internal/service"
 )
 
 func getenv(key, fallback string) string {
@@ -19,15 +24,21 @@ func getenv(key, fallback string) string {
 	return fallback
 }
 
-func getenvDuration(key, fallback string) time.Duration {
+func getenvDuration(logger *slog.Logger, key, fallback string) time.Duration {
 	d, err := time.ParseDuration(getenv(key, fallback))
 	if err != nil {
-		log.Fatalf("неверный формат длительности для %s: %v", key, err)
+		logger.Error("неверный формат длительности", "key", key, "error", err)
+		os.Exit(1)
 	}
 	return d
 }
 
 func main() {
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
+	slog.SetDefault(logger)
+
 	ctx := context.Background()
 
 	dsn := fmt.Sprintf(
@@ -41,26 +52,59 @@ func main() {
 
 	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {
-		log.Fatalf("не удалось создать пул подключений к БД: %v", err)
+		logger.Error("не удалось создать пул подключений к БД", "error", err)
+		os.Exit(1)
 	}
 	defer pool.Close()
 
 	if err := pool.Ping(ctx); err != nil {
-		log.Fatalf("не удалось подключиться к БД: %v", err)
+		logger.Error("не удалось подключиться к БД", "error", err)
+		os.Exit(1)
 	}
-	log.Println("подключение к БД установлено")
+	logger.Info("подключение к БД установлено")
 
-	cfg := router.Config{
+	authCfg := service.AuthConfig{
 		JWTSecret:  []byte(getenv("JWT_SECRET", "dev-secret-change-me")),
-		AccessTTL:  getenvDuration("ACCESS_TOKEN_TTL", "15m"),
-		RefreshTTL: getenvDuration("REFRESH_TOKEN_TTL", "720h"), // 30 дней
+		AccessTTL:  getenvDuration(logger, "JWT_ACCESS_TTL", "15m"),
+		RefreshTTL: getenvDuration(logger, "JWT_REFRESH_TTL", "720h"),
 	}
 
-	r := router.New(pool, cfg)
+	r := router.New(pool, logger, authCfg)
 
 	port := getenv("APP_PORT", "8080")
-	log.Printf("сервер запущен на :%s", port)
-	if err := r.Run(":" + port); err != nil {
-		log.Fatalf("сервер упал: %v", err)
+	srv := &http.Server{
+		Addr:         ":" + port,
+		Handler:      r,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
+
+	go func() {
+		logger.Info("сервер запущен", "port", port)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logger.Error("сервер упал", "error", err)
+			os.Exit(1)
+		}
+	}()
+
+	stopCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	<-stopCtx.Done()
+
+	logger.Info("получен сигнал завершения, начинаю graceful shutdown")
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		logger.Error("ошибка при остановке HTTP-сервера", "error", err)
+	} else {
+		logger.Info("HTTP-сервер остановлен")
+	}
+
+	pool.Close()
+	logger.Info("пул подключений к БД закрыт")
+
+	logger.Info("graceful shutdown завершён")
 }

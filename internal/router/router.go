@@ -1,40 +1,41 @@
 package router
 
 import (
-	"time"
+	"log/slog"
 
 	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/raxima/seatpicker/internal/middleware"
 
 	"github.com/raxima/seatpicker/internal/handler"
+	"github.com/raxima/seatpicker/internal/middleware"
+	"github.com/raxima/seatpicker/internal/model"
 	"github.com/raxima/seatpicker/internal/repository"
 	"github.com/raxima/seatpicker/internal/service"
 )
 
-type Config struct {
-	JWTSecret  []byte
-	AccessTTL  time.Duration
-	RefreshTTL time.Duration
+// DB объединяет то, что нужно репозиториям (DBTX), и то, что нужно
+// health-проверке (Pinger). *pgxpool.Pool реализует оба интерфейса,
+// как и pgxmock.PgxPoolIface — в тестах.
+type DB interface {
+	repository.DBTX
+	handler.Pinger
 }
 
-func New(db *pgxpool.Pool, cfg Config) *gin.Engine {
-	r := gin.Default()
+func New(db DB, logger *slog.Logger, authCfg service.AuthConfig) *gin.Engine {
+	r := gin.New()
+	r.Use(gin.Recovery())
 
-	healthHandler := handler.NewHealthHandler(db)
+	r.Use(middleware.RequestID())
+	r.Use(middleware.Logger(logger))
+
+	healthHandler := handler.NewHealthHandler(db, logger)
 	r.GET("/health", healthHandler.Health)
 
-	userRepo := repository.NewPgUserRepo(db)
+	userRepo := repository.NewPgUserRepo(db, logger)
 	refreshTokenRepo := repository.NewPgRefreshTokenRepo(db)
-	authService := service.NewAuthService(userRepo, refreshTokenRepo, service.AuthConfig{
-		JWTSecret:  cfg.JWTSecret,
-		AccessTTL:  cfg.AccessTTL,
-		RefreshTTL: cfg.RefreshTTL,
-	})
-	authHandler := handler.NewAuthHandler(authService)
+	authService := service.NewAuthService(userRepo, refreshTokenRepo, authCfg, logger)
+	authHandler := handler.NewAuthHandler(authService, logger)
 
 	auth := r.Group("/auth")
-
 	auth.POST("/register", authHandler.Register)
 	auth.POST("/login", authHandler.Login)
 	auth.POST("/refresh", authHandler.Refresh)
@@ -47,8 +48,16 @@ func New(db *pgxpool.Pool, cfg Config) *gin.Engine {
 	shows := r.Group("/shows")
 	shows.GET("", showHandler.List)
 	shows.GET("/:id", showHandler.GetByID)
+	shows.GET("/:id/poster", showHandler.GetPoster)
 
-	// TODO: сюда подключаются роуты дорожек A/B/C.
-	_ = middleware.Auth
+	protected := shows.Group("", middleware.AuthMiddleware(authCfg.JWTSecret), middleware.RequireRole(model.RoleOrganizer, model.RoleAdmin))
+	protected.POST("", showHandler.Create)
+	protected.PUT("/:id", showHandler.Update)
+	protected.DELETE("/:id", showHandler.Delete)
+	protected.POST("/:id/poster", showHandler.UploadPoster)
+	protected.POST("/:id/seatmap", showHandler.GenerateSeatMap)
+	protected.GET("/:id/stats", showHandler.GetStats)
+	protected.PUT("/:id/cancel", showHandler.Cancel)
+
 	return r
 }
