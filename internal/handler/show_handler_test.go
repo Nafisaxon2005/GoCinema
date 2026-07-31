@@ -324,8 +324,12 @@ func TestShowHandler_OrganizerEndpoints(t *testing.T) {
 		hHeader.Set("Content-Disposition", `form-data; name="poster"; filename="test.png"`)
 		hHeader.Set("Content-Type", "image/png")
 		part, _ := mw.CreatePart(hHeader)
-		part.Write([]byte("fake-image-bytes"))
-		mw.Close()
+		if _, err := part.Write([]byte("fake-image-bytes")); err != nil {
+			t.Fatalf("не удалось записать тело multipart-части: %v", err)
+		}
+		if err := mw.Close(); err != nil {
+			t.Fatalf("не удалось закрыть multipart writer: %v", err)
+		}
 
 		r := gin.New()
 		r.POST("/shows/:id/poster", func(c *gin.Context) {
@@ -389,8 +393,12 @@ func TestShowHandler_OrganizerEndpoints(t *testing.T) {
 		hHeader.Set("Content-Disposition", `form-data; name="poster"; filename="test.txt"`)
 		hHeader.Set("Content-Type", "text/plain")
 		part, _ := mw.CreatePart(hHeader)
-		part.Write([]byte("not an image"))
-		mw.Close()
+		if _, err := part.Write([]byte("not an image")); err != nil {
+			t.Fatalf("не удалось записать тело multipart-части: %v", err)
+		}
+		if err := mw.Close(); err != nil {
+			t.Fatalf("не удалось закрыть multipart writer: %v", err)
+		}
 
 		reqText := httptest.NewRequest(http.MethodPost, "/shows/"+itoa(newID)+"/poster", &body)
 		reqText.Header.Set("Content-Type", mw.FormDataContentType())
@@ -446,4 +454,3 @@ func itoa(n int64) string {
 	}
 	return string(buf[i:])
 }
-

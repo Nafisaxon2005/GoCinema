@@ -277,7 +277,7 @@ func (r *PgShowRepo) CancelShow(ctx context.Context, showID int64) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	tag, err := tx.Exec(ctx, `UPDATE shows SET status = $2 WHERE id = $1`, showID, model.ShowCancelled)
 	if err != nil {

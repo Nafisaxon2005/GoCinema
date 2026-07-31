@@ -1,0 +1,2 @@
+ALTER TABLE bookings ADD COLUMN reason TEXT;
+ALTER TABLE bookings ADD COLUMN refunded_at TIMESTAMPTZ;

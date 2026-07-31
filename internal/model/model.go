@@ -20,11 +20,13 @@ const (
 	ShowCancelled ShowStatus = "cancelled"
 )
 
-// Статусы места: free -> booked.
+// Статусы места: free -> held -> booked (held — временное удержание перед оплатой,
+// протухшие held-места освобождаются фоновой задачей, см. C-06).
 type SeatStatus string
 
 const (
 	SeatFree   SeatStatus = "free"
+	SeatHeld   SeatStatus = "held"
 	SeatBooked SeatStatus = "booked"
 )
 
@@ -142,4 +144,17 @@ type ShowStats struct {
 	Revenue       int64   `json:"revenue"`
 	OccupancyRate float64 `json:"occupancy_rate"`
 }
+type RefundResponse struct {
+	BookingID  int64     `json:"booking_id"`
+	ShowID     int64     `json:"show_id"`
+	SeatID     int64     `json:"seat_id"`
+	UserID     int64     `json:"user_id"`
+	Reason     string    `json:"reason"`
+	RefundedAt time.Time `json:"refunded_at"`
+}
 
+type HeldSeatResponse struct {
+	SeatID int64     `json:"seat_id"`
+	ShowID int64     `json:"show_id"`
+	HeldAt time.Time `json:"held_at"`
+}
