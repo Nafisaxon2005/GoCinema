@@ -13,7 +13,7 @@ import (
 func TestPgAdminRepo_GetStatsByPeriod(t *testing.T) {
 	mock, err := pgxmock.NewConn()
 	assert.NoError(t, err)
-	defer mock.Close(context.Background())
+	defer func() { _ = mock.Close(context.Background()) }()
 
 	r := NewPgAdminRepo(mock)
 
@@ -36,10 +36,10 @@ func TestPgAdminRepo_GetStatsByPeriod(t *testing.T) {
 func TestPgAdminRepo_ListShows(t *testing.T) {
 	mock, err := pgxmock.NewConn()
 	assert.NoError(t, err)
-	defer mock.Close(context.Background())
+	defer func() { _ = mock.Close(context.Background()) }()
 
 	r := NewPgAdminRepo(mock)
-	status := model.ShowStatusDraft
+	status := model.ShowDraft
 
 	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM shows WHERE`).
 		WithArgs(status).

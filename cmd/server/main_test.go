@@ -8,8 +8,8 @@ import (
 )
 
 func TestGetenv(t *testing.T) {
-	os.Setenv("TEST_KEY_GO_CINEMA", "val123")
-	defer os.Unsetenv("TEST_KEY_GO_CINEMA")
+	_ = os.Setenv("TEST_KEY_GO_CINEMA", "val123")
+	defer func() { _ = os.Unsetenv("TEST_KEY_GO_CINEMA") }()
 
 	if got := getenv("TEST_KEY_GO_CINEMA", "default"); got != "val123" {
 		t.Errorf("expected val123, got %s", got)
@@ -22,8 +22,8 @@ func TestGetenv(t *testing.T) {
 
 func TestGetenvDuration(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	os.Setenv("TEST_DUR_KEY", "15m")
-	defer os.Unsetenv("TEST_DUR_KEY")
+	_ = os.Setenv("TEST_DUR_KEY", "15m")
+	defer func() { _ = os.Unsetenv("TEST_DUR_KEY") }()
 
 	dur := getenvDuration(logger, "TEST_DUR_KEY", "1m")
 	if dur != 15*time.Minute {

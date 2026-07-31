@@ -63,6 +63,9 @@ func performTestRequest(handlerFunc gin.HandlerFunc, method, url string, userID 
 	}
 
 	handlerFunc(c)
+	if !c.Writer.Written() {
+		c.Writer.WriteHeaderNow()
+	}
 	return w
 }
 

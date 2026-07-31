@@ -199,9 +199,9 @@ func (h *AdminHandler) ExportReport(c *gin.Context) {
 		c.Header("Content-Disposition", `attachment; filename="report.csv"`)
 
 		cw := csv.NewWriter(c.Writer)
-		cw.Write([]string{"show_id", "title", "sold", "total", "revenue"})
+		_ = cw.Write([]string{"show_id", "title", "sold", "total", "revenue"})
 		for _, st := range stats {
-			cw.Write([]string{
+			_ = cw.Write([]string{
 				strconv.FormatInt(st.ShowID, 10),
 				st.Title,
 				strconv.Itoa(st.Sold),

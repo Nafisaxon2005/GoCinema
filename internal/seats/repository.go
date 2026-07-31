@@ -34,7 +34,7 @@ func (r *Repository) BookSeat(ctx context.Context, showID, seatID, userID int64)
 		return 0, err
 	}
 
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	var showStatus string
 	err = tx.QueryRow(ctx, `SELECT status FROM shows WHERE id = $1`, showID).Scan(&showStatus)
@@ -86,7 +86,7 @@ func (r *Repository) CancelBooking(ctx context.Context, bookingID, userID int64)
 		return err
 	}
 
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	var ownerID int64
 	var seatID int64
@@ -128,7 +128,7 @@ func (r *Repository) RefundBooking(ctx context.Context, bookingID int64, reason 
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	var seatID int64
 	err = tx.QueryRow(ctx,
