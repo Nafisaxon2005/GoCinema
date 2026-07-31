@@ -7,6 +7,7 @@ import (
 
 	"github.com/raxima/seatpicker/internal/model"
 	"github.com/raxima/seatpicker/internal/repository"
+	"github.com/raxima/seatpicker/internal/seats"
 )
 
 // --- моки ---
@@ -57,6 +58,12 @@ func (m *mockShowRepo) CountFreeSeats(ctx context.Context, showID int64) (int, e
 	return 0, nil
 }
 
+// newTestSeatsRepo возвращает *seats.Repository с nil-пулом — для тестов
+// GetStats/ListShows/ModerateShow он не используется, поэтому пула не требуется.
+func newTestSeatsRepo() *seats.Repository {
+	return seats.NewRepository(nil)
+}
+
 // --- тесты GetStats ---
 
 func TestAdminService_GetStats(t *testing.T) {
@@ -87,7 +94,7 @@ func TestAdminService_GetStats(t *testing.T) {
 					return []model.ShowSalesStat{{ShowID: 1, Sold: 5, Total: 10, Revenue: 1000}}, tt.mockErr
 				},
 			}
-			svc := NewAdminService(repo, &mockShowRepo{})
+			svc := NewAdminService(repo, &mockShowRepo{}, newTestSeatsRepo())
 
 			_, err := svc.GetStats(context.Background(), tt.from, tt.to)
 			if tt.wantErr != nil {
@@ -114,7 +121,7 @@ func TestAdminService_ListShows_Defaults(t *testing.T) {
 			return []model.Show{}, 0, nil
 		},
 	}
-	svc := NewAdminService(repo, &mockShowRepo{})
+	svc := NewAdminService(repo, &mockShowRepo{}, newTestSeatsRepo())
 
 	_, _, err := svc.ListShows(context.Background(), repository.AdminShowFilter{})
 	if err != nil {
@@ -137,7 +144,7 @@ func TestAdminService_ListShows_PageSizeCap(t *testing.T) {
 			return []model.Show{}, 0, nil
 		},
 	}
-	svc := NewAdminService(repo, &mockShowRepo{})
+	svc := NewAdminService(repo, &mockShowRepo{}, newTestSeatsRepo())
 
 	_, _, _ = svc.ListShows(context.Background(), repository.AdminShowFilter{Page: 2, PageSize: 500})
 	if gotFilter.PageSize != 20 {
@@ -212,7 +219,7 @@ func TestAdminService_ModerateShow(t *testing.T) {
 					return nil
 				},
 			}
-			svc := NewAdminService(&mockAdminRepo{}, showRepo)
+			svc := NewAdminService(&mockAdminRepo{}, showRepo, newTestSeatsRepo())
 
 			err := svc.ModerateShow(context.Background(), 1, tt.action)
 

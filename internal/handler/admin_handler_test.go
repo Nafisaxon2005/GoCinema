@@ -21,9 +21,12 @@ func init() {
 // --- мок AdminService ---
 
 type mockAdminService struct {
-	getStatsFn     func(ctx context.Context, from, to time.Time) ([]model.ShowSalesStat, error)
-	listShowsFn    func(ctx context.Context, f repository.AdminShowFilter) ([]model.Show, int, error)
-	moderateShowFn func(ctx context.Context, showID int64, action string) error
+	getStatsFn       func(ctx context.Context, from, to time.Time) ([]model.ShowSalesStat, error)
+	listShowsFn      func(ctx context.Context, f repository.AdminShowFilter) ([]model.Show, int, error)
+	moderateShowFn   func(ctx context.Context, showID int64, action string) error
+	refundBookingFn  func(ctx context.Context, bookingID int64, reason string) error
+	listRefundsFn    func(ctx context.Context, limit, offset int) ([]model.RefundResponse, error)
+	listStaleHoldsFn func(ctx context.Context, olderThan time.Duration) ([]model.HeldSeatResponse, error)
 }
 
 func (m *mockAdminService) GetStats(ctx context.Context, from, to time.Time) ([]model.ShowSalesStat, error) {
@@ -36,6 +39,27 @@ func (m *mockAdminService) ListShows(ctx context.Context, f repository.AdminShow
 
 func (m *mockAdminService) ModerateShow(ctx context.Context, showID int64, action string) error {
 	return m.moderateShowFn(ctx, showID, action)
+}
+
+func (m *mockAdminService) RefundBooking(ctx context.Context, bookingID int64, reason string) error {
+	if m.refundBookingFn != nil {
+		return m.refundBookingFn(ctx, bookingID, reason)
+	}
+	return nil
+}
+
+func (m *mockAdminService) ListRefunds(ctx context.Context, limit, offset int) ([]model.RefundResponse, error) {
+	if m.listRefundsFn != nil {
+		return m.listRefundsFn(ctx, limit, offset)
+	}
+	return nil, nil
+}
+
+func (m *mockAdminService) ListStaleHolds(ctx context.Context, olderThan time.Duration) ([]model.HeldSeatResponse, error) {
+	if m.listStaleHoldsFn != nil {
+		return m.listStaleHoldsFn(ctx, olderThan)
+	}
+	return nil, nil
 }
 
 func performRequest(handlerFunc gin.HandlerFunc, method, url string, body []byte, params gin.Params) *httptest.ResponseRecorder {
@@ -256,5 +280,92 @@ func TestAdminHandler_ModerateShow(t *testing.T) {
 				t.Fatalf("expected status %d, got %d, body=%s", tt.wantStatus, w.Code, w.Body.String())
 			}
 		})
+	}
+}
+
+// --- тесты RefundBooking (C-04) ---
+
+func TestAdminHandler_RefundBooking(t *testing.T) {
+	tests := []struct {
+		name       string
+		idParam    string
+		url        string
+		serviceErr error
+		wantStatus int
+	}{
+		{
+			name:       "valid refund succeeds",
+			idParam:    "1",
+			url:        "/admin/bookings/1/refund?reason=не смог прийти",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "invalid id returns 400",
+			idParam:    "not-a-number",
+			url:        "/admin/bookings/not-a-number/refund?reason=test",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "missing reason returns 400",
+			idParam:    "1",
+			url:        "/admin/bookings/1/refund",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "booking not found propagates",
+			idParam:    "999",
+			url:        "/admin/bookings/999/refund?reason=test",
+			serviceErr: model.ErrNotFound,
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := &mockAdminService{
+				refundBookingFn: func(ctx context.Context, bookingID int64, reason string) error {
+					return tt.serviceErr
+				},
+			}
+			h := NewAdminHandler(svc)
+
+			params := gin.Params{{Key: "id", Value: tt.idParam}}
+			w := performRequest(h.RefundBooking, http.MethodGet, tt.url, nil, params)
+			if w.Code != tt.wantStatus {
+				t.Fatalf("expected status %d, got %d, body=%s", tt.wantStatus, w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+// --- тесты ListRefunds (C-04) ---
+
+func TestAdminHandler_ListRefunds(t *testing.T) {
+	svc := &mockAdminService{
+		listRefundsFn: func(ctx context.Context, limit, offset int) ([]model.RefundResponse, error) {
+			return []model.RefundResponse{{BookingID: 1, Reason: "test"}}, nil
+		},
+	}
+	h := NewAdminHandler(svc)
+
+	w := performRequest(h.ListRefunds, http.MethodGet, "/admin/refunds?limit=10&offset=0", nil, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d, body=%s", w.Code, w.Body.String())
+	}
+}
+
+// --- тесты ListHolds (C-06) ---
+
+func TestAdminHandler_ListHolds(t *testing.T) {
+	svc := &mockAdminService{
+		listStaleHoldsFn: func(ctx context.Context, olderThan time.Duration) ([]model.HeldSeatResponse, error) {
+			return []model.HeldSeatResponse{{SeatID: 1, ShowID: 1}}, nil
+		},
+	}
+	h := NewAdminHandler(svc)
+
+	w := performRequest(h.ListHolds, http.MethodGet, "/admin/holds?minutes=15", nil, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d, body=%s", w.Code, w.Body.String())
 	}
 }
