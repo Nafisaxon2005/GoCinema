@@ -2,13 +2,12 @@ package seats
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/gin-gonic/gin"
-
 	"github.com/raxima/seatpicker/internal/model"
 )
 
@@ -16,81 +15,133 @@ func init() {
 	gin.SetMode(gin.TestMode)
 }
 
-// ---- fake Booker ----
-
-type fakeBooker struct {
-	bookSeatErr        error
-	bookSeatID         int64
-	cancelErr          error
-	getShowSeats       []model.Seat
-	getShowSeatsErr    error
-	getUserBookings    []model.BookingResponse
-	getUserBookingsErr error
+type mockBooker struct {
+	bookSeatFn        func(ctx context.Context, showID, seatID, userID int64) (int64, error)
+	cancelBookingFn   func(ctx context.Context, bookingID, userID int64) error
+	getShowSeatsFn    func(ctx context.Context, showID int64) ([]model.Seat, error)
+	getUserBookingsFn func(ctx context.Context, filter model.BookingFilter) ([]model.BookingResponse, error)
 }
 
-func (f *fakeBooker) BookSeat(ctx context.Context, showID, seatID, userID int64) (int64, error) {
-	if f.bookSeatErr != nil {
-		return 0, f.bookSeatErr
+func (m *mockBooker) BookSeat(ctx context.Context, showID, seatID, userID int64) (int64, error) {
+	if m.bookSeatFn != nil {
+		return m.bookSeatFn(ctx, showID, seatID, userID)
 	}
-	return f.bookSeatID, nil
+	return 1, nil
 }
 
-func (f *fakeBooker) CancelBooking(ctx context.Context, bookingID, userID int64) error {
-	return f.cancelErr
+func (m *mockBooker) CancelBooking(ctx context.Context, bookingID, userID int64) error {
+	if m.cancelBookingFn != nil {
+		return m.cancelBookingFn(ctx, bookingID, userID)
+	}
+	return nil
 }
 
-func (f *fakeBooker) GetShowSeats(ctx context.Context, showID int64) ([]model.Seat, error) {
-	return f.getShowSeats, f.getShowSeatsErr
+func (m *mockBooker) GetShowSeats(ctx context.Context, showID int64) ([]model.Seat, error) {
+	if m.getShowSeatsFn != nil {
+		return m.getShowSeatsFn(ctx, showID)
+	}
+	return nil, nil
 }
 
-func (f *fakeBooker) GetUserBookings(ctx context.Context, filter model.BookingFilter) ([]model.BookingResponse, error) {
-	return f.getUserBookings, f.getUserBookingsErr
+func (m *mockBooker) GetUserBookings(ctx context.Context, filter model.BookingFilter) ([]model.BookingResponse, error) {
+	if m.getUserBookingsFn != nil {
+		return m.getUserBookingsFn(ctx, filter)
+	}
+	return nil, nil
 }
 
-func newRouterWithUser(h *Handler, userID int64, setUser bool) *gin.Engine {
-	r := gin.New()
-	r.Use(func(c *gin.Context) {
-		if setUser {
-			c.Set("userID", userID)
-		}
-		c.Next()
-	})
-	r.POST("/shows/:id/seats/:seatId/book", h.Book)
-	r.GET("/shows/:id/seats", h.GetSeats)
-	r.DELETE("/bookings/:bookingId", h.Cancel)
-	r.GET("/bookings", h.GetMyBookings)
-	return r
+func performTestRequest(handlerFunc gin.HandlerFunc, method, url string, userID *int64, params gin.Params) *httptest.ResponseRecorder {
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+
+	req := httptest.NewRequest(method, url, nil)
+	c.Request = req
+	c.Params = params
+
+	if userID != nil {
+		c.Set("userID", *userID)
+	}
+
+	handlerFunc(c)
+	return w
 }
 
 func TestHandler_Book(t *testing.T) {
+	uid := int64(1)
+
 	tests := []struct {
 		name       string
-		target     string
-		setUser    bool
-		bookErr    error
+		url        string
+		params     gin.Params
+		userID     *int64
+		bookFn     func(ctx context.Context, showID, seatID, userID int64) (int64, error)
 		wantStatus int
 	}{
-		{name: "успешное бронирование", target: "/shows/1/seats/2/book", setUser: true, wantStatus: http.StatusCreated},
-		{name: "невалидный show id", target: "/shows/abc/seats/2/book", setUser: true, wantStatus: http.StatusBadRequest},
-		{name: "невалидный seat id", target: "/shows/1/seats/abc/book", setUser: true, wantStatus: http.StatusBadRequest},
-		{name: "нет userID", target: "/shows/1/seats/2/book", setUser: false, wantStatus: http.StatusUnauthorized},
-		{name: "место занято", target: "/shows/1/seats/2/book", setUser: true, bookErr: ErrSeatTaken, wantStatus: http.StatusConflict},
-		{name: "сеанс недоступен", target: "/shows/1/seats/2/book", setUser: true, bookErr: ErrShowNotAvailable, wantStatus: http.StatusBadRequest},
-		{name: "внутренняя ошибка", target: "/shows/1/seats/2/book", setUser: true, bookErr: context.DeadlineExceeded, wantStatus: http.StatusInternalServerError},
+		{
+			name:       "success booking",
+			url:        "/shows/1/seats/2/book",
+			params:     gin.Params{{Key: "id", Value: "1"}, {Key: "seatId", Value: "2"}},
+			userID:     &uid,
+			bookFn:     func(ctx context.Context, showID, seatID, userID int64) (int64, error) { return 10, nil },
+			wantStatus: http.StatusCreated,
+		},
+		{
+			name:       "invalid show id",
+			url:        "/shows/abc/seats/2/book",
+			params:     gin.Params{{Key: "id", Value: "abc"}, {Key: "seatId", Value: "2"}},
+			userID:     &uid,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "invalid seat id",
+			url:        "/shows/1/seats/abc/book",
+			params:     gin.Params{{Key: "id", Value: "1"}, {Key: "seatId", Value: "abc"}},
+			userID:     &uid,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "unauthorized",
+			url:        "/shows/1/seats/2/book",
+			params:     gin.Params{{Key: "id", Value: "1"}, {Key: "seatId", Value: "2"}},
+			userID:     nil,
+			wantStatus: http.StatusUnauthorized,
+		},
+		{
+			name:       "seat taken conflict",
+			url:        "/shows/1/seats/2/book",
+			params:     gin.Params{{Key: "id", Value: "1"}, {Key: "seatId", Value: "2"}},
+			userID:     &uid,
+			bookFn:     func(ctx context.Context, showID, seatID, userID int64) (int64, error) { return 0, ErrSeatTaken },
+			wantStatus: http.StatusConflict,
+		},
+		{
+			name:       "show not available bad request",
+			url:        "/shows/1/seats/2/book",
+			params:     gin.Params{{Key: "id", Value: "1"}, {Key: "seatId", Value: "2"}},
+			userID:     &uid,
+			bookFn:     func(ctx context.Context, showID, seatID, userID int64) (int64, error) { return 0, ErrShowNotAvailable },
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:   "internal error",
+			url:    "/shows/1/seats/2/book",
+			params: gin.Params{{Key: "id", Value: "1"}, {Key: "seatId", Value: "2"}},
+			userID: &uid,
+			bookFn: func(ctx context.Context, showID, seatID, userID int64) (int64, error) {
+				return 0, errors.New("db error")
+			},
+			wantStatus: http.StatusInternalServerError,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			fb := &fakeBooker{bookSeatErr: tt.bookErr, bookSeatID: 100}
-			h := NewHandler(fb)
-			r := newRouterWithUser(h, 1, tt.setUser)
+			repo := &mockBooker{bookSeatFn: tt.bookFn}
+			h := NewHandler(repo)
 
-			req := httptest.NewRequest(http.MethodPost, tt.target, nil)
-			w := httptest.NewRecorder()
-			r.ServeHTTP(w, req)
-
+			w := performTestRequest(h.Book, http.MethodPost, tt.url, tt.userID, tt.params)
 			if w.Code != tt.wantStatus {
-				t.Errorf("статус = %d, ожидалось %d, тело: %s", w.Code, tt.wantStatus, w.Body.String())
+				t.Errorf("expected status %d, got %d", tt.wantStatus, w.Code)
 			}
 		})
 	}
@@ -99,102 +150,155 @@ func TestHandler_Book(t *testing.T) {
 func TestHandler_GetSeats(t *testing.T) {
 	tests := []struct {
 		name       string
-		target     string
-		seats      []model.Seat
-		repoErr    error
+		url        string
+		params     gin.Params
+		getSeatsFn func(ctx context.Context, showID int64) ([]model.Seat, error)
 		wantStatus int
 	}{
-		{name: "успешный список", target: "/shows/1/seats", seats: []model.Seat{{ID: 1}, {ID: 2}}, wantStatus: http.StatusOK},
-		{name: "невалидный show id", target: "/shows/abc/seats", wantStatus: http.StatusBadRequest},
-		{name: "ошибка репозитория", target: "/shows/1/seats", repoErr: context.DeadlineExceeded, wantStatus: http.StatusInternalServerError},
+		{
+			name:       "success get seats",
+			url:        "/shows/1/seats",
+			params:     gin.Params{{Key: "id", Value: "1"}},
+			getSeatsFn: func(ctx context.Context, showID int64) ([]model.Seat, error) { return []model.Seat{{ID: 1}}, nil },
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "invalid show id",
+			url:        "/shows/abc/seats",
+			params:     gin.Params{{Key: "id", Value: "abc"}},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "repo error internal",
+			url:        "/shows/1/seats",
+			params:     gin.Params{{Key: "id", Value: "1"}},
+			getSeatsFn: func(ctx context.Context, showID int64) ([]model.Seat, error) { return nil, errors.New("error") },
+			wantStatus: http.StatusInternalServerError,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			fb := &fakeBooker{getShowSeats: tt.seats, getShowSeatsErr: tt.repoErr}
-			h := NewHandler(fb)
-			r := newRouterWithUser(h, 1, true)
+			repo := &mockBooker{getShowSeatsFn: tt.getSeatsFn}
+			h := NewHandler(repo)
 
-			req := httptest.NewRequest(http.MethodGet, tt.target, nil)
-			w := httptest.NewRecorder()
-			r.ServeHTTP(w, req)
-
+			w := performTestRequest(h.GetSeats, http.MethodGet, tt.url, nil, tt.params)
 			if w.Code != tt.wantStatus {
-				t.Errorf("статус = %d, ожидалось %d, тело: %s", w.Code, tt.wantStatus, w.Body.String())
+				t.Errorf("expected status %d, got %d", tt.wantStatus, w.Code)
 			}
 		})
 	}
 }
 
 func TestHandler_Cancel(t *testing.T) {
+	uid := int64(1)
+
 	tests := []struct {
 		name       string
-		target     string
-		setUser    bool
-		cancelErr  error
+		url        string
+		params     gin.Params
+		userID     *int64
+		cancelFn   func(ctx context.Context, bookingID, userID int64) error
 		wantStatus int
 	}{
-		{name: "успешная отмена", target: "/bookings/1", setUser: true, wantStatus: http.StatusNoContent},
-		{name: "невалидный booking id", target: "/bookings/abc", setUser: true, wantStatus: http.StatusBadRequest},
-		{name: "нет userID", target: "/bookings/1", setUser: false, wantStatus: http.StatusUnauthorized},
-		{name: "бронь не найдена", target: "/bookings/1", setUser: true, cancelErr: ErrBookingNotFound, wantStatus: http.StatusNotFound},
-		{name: "чужая бронь", target: "/bookings/1", setUser: true, cancelErr: ErrForbidden, wantStatus: http.StatusForbidden},
-		{name: "внутренняя ошибка", target: "/bookings/1", setUser: true, cancelErr: context.DeadlineExceeded, wantStatus: http.StatusInternalServerError},
+		{
+			name:       "success cancel",
+			url:        "/bookings/1",
+			params:     gin.Params{{Key: "bookingId", Value: "1"}},
+			userID:     &uid,
+			wantStatus: http.StatusNoContent,
+		},
+		{
+			name:       "invalid booking id",
+			url:        "/bookings/abc",
+			params:     gin.Params{{Key: "bookingId", Value: "abc"}},
+			userID:     &uid,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "unauthorized",
+			url:        "/bookings/1",
+			params:     gin.Params{{Key: "bookingId", Value: "1"}},
+			userID:     nil,
+			wantStatus: http.StatusUnauthorized,
+		},
+		{
+			name:       "booking not found",
+			url:        "/bookings/1",
+			params:     gin.Params{{Key: "bookingId", Value: "1"}},
+			userID:     &uid,
+			cancelFn:   func(ctx context.Context, bookingID, userID int64) error { return ErrBookingNotFound },
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "forbidden error",
+			url:        "/bookings/1",
+			params:     gin.Params{{Key: "bookingId", Value: "1"}},
+			userID:     &uid,
+			cancelFn:   func(ctx context.Context, bookingID, userID int64) error { return ErrForbidden },
+			wantStatus: http.StatusForbidden,
+		},
+		{
+			name:       "internal error",
+			url:        "/bookings/1",
+			params:     gin.Params{{Key: "bookingId", Value: "1"}},
+			userID:     &uid,
+			cancelFn:   func(ctx context.Context, bookingID, userID int64) error { return errors.New("err") },
+			wantStatus: http.StatusInternalServerError,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			fb := &fakeBooker{cancelErr: tt.cancelErr}
-			h := NewHandler(fb)
-			r := newRouterWithUser(h, 1, tt.setUser)
+			repo := &mockBooker{cancelBookingFn: tt.cancelFn}
+			h := NewHandler(repo)
 
-			req := httptest.NewRequest(http.MethodDelete, tt.target, nil)
-			w := httptest.NewRecorder()
-			r.ServeHTTP(w, req)
-
+			w := performTestRequest(h.Cancel, http.MethodDelete, tt.url, tt.userID, tt.params)
 			if w.Code != tt.wantStatus {
-				t.Errorf("статус = %d, ожидалось %d, тело: %s", w.Code, tt.wantStatus, w.Body.String())
+				t.Errorf("expected status %d, got %d", tt.wantStatus, w.Code)
 			}
 		})
 	}
 }
 
 func TestHandler_GetMyBookings(t *testing.T) {
-	tests := []struct {
-		name       string
-		target     string
-		setUser    bool
-		bookings   []model.BookingResponse
-		repoErr    error
-		wantStatus int
-	}{
-		{name: "успешный список без фильтров", target: "/bookings", setUser: true, bookings: []model.BookingResponse{{ID: 1}}, wantStatus: http.StatusOK},
-		{name: "с фильтрами status/date/limit/offset", target: "/bookings?status=booked&date=2026-01-01&limit=5&offset=10", setUser: true, wantStatus: http.StatusOK},
-		{name: "нет userID", target: "/bookings", setUser: false, wantStatus: http.StatusUnauthorized},
-		{name: "ошибка репозитория", target: "/bookings", setUser: true, repoErr: context.DeadlineExceeded, wantStatus: http.StatusInternalServerError},
-		{name: "невалидный limit игнорируется (дефолт)", target: "/bookings?limit=abc", setUser: true, wantStatus: http.StatusOK},
-	}
+	uid := int64(1)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			fb := &fakeBooker{getUserBookings: tt.bookings, getUserBookingsErr: tt.repoErr}
-			h := NewHandler(fb)
-			r := newRouterWithUser(h, 1, tt.setUser)
+	t.Run("success with query params", func(t *testing.T) {
+		repo := &mockBooker{
+			getUserBookingsFn: func(ctx context.Context, filter model.BookingFilter) ([]model.BookingResponse, error) {
+				return []model.BookingResponse{{ID: 1}}, nil
+			},
+		}
+		h := NewHandler(repo)
 
-			req := httptest.NewRequest(http.MethodGet, tt.target, nil)
-			w := httptest.NewRecorder()
-			r.ServeHTTP(w, req)
+		w := performTestRequest(h.GetMyBookings, http.MethodGet, "/bookings?status=active&date=2026-07-31&limit=5&offset=2", &uid, nil)
+		if w.Code != http.StatusOK {
+			t.Errorf("expected status 200, got %d", w.Code)
+		}
+	})
 
-			if w.Code != tt.wantStatus {
-				t.Errorf("статус = %d, ожидалось %d, тело: %s", w.Code, tt.wantStatus, w.Body.String())
-			}
+	t.Run("unauthorized", func(t *testing.T) {
+		repo := &mockBooker{}
+		h := NewHandler(repo)
 
-			if tt.wantStatus == http.StatusOK {
-				var got []model.BookingResponse
-				if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
-					t.Errorf("не удалось распарсить тело: %v", err)
-				}
-			}
-		})
-	}
+		w := performTestRequest(h.GetMyBookings, http.MethodGet, "/bookings", nil, nil)
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("expected status 401, got %d", w.Code)
+		}
+	})
+
+	t.Run("repo error", func(t *testing.T) {
+		repo := &mockBooker{
+			getUserBookingsFn: func(ctx context.Context, filter model.BookingFilter) ([]model.BookingResponse, error) {
+				return nil, errors.New("error")
+			},
+		}
+		h := NewHandler(repo)
+
+		w := performTestRequest(h.GetMyBookings, http.MethodGet, "/bookings", &uid, nil)
+		if w.Code != http.StatusInternalServerError {
+			t.Errorf("expected status 500, got %d", w.Code)
+		}
+	})
 }
