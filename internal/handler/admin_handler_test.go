@@ -296,7 +296,7 @@ func TestAdminHandler_RefundBooking(t *testing.T) {
 		{
 			name:       "valid refund succeeds",
 			idParam:    "1",
-			url:        "/admin/bookings/1/refund?reason=не смог прийти",
+			url:        "/admin/bookings/1/refund?reason=test",
 			wantStatus: http.StatusOK,
 		},
 		{
@@ -327,10 +327,21 @@ func TestAdminHandler_RefundBooking(t *testing.T) {
 					return tt.serviceErr
 				},
 			}
+
 			h := NewAdminHandler(svc)
 
-			params := gin.Params{{Key: "id", Value: tt.idParam}}
-			w := performRequest(h.RefundBooking, http.MethodGet, tt.url, nil, params)
+			params := gin.Params{
+				{Key: "id", Value: tt.idParam},
+			}
+
+			w := performRequest(
+				h.RefundBooking,
+				http.MethodGet,
+				tt.url,
+				nil,
+				params,
+			)
+
 			if w.Code != tt.wantStatus {
 				t.Fatalf("expected status %d, got %d, body=%s", tt.wantStatus, w.Code, w.Body.String())
 			}
