@@ -1,20 +1,26 @@
 package router
 
 import (
+	"context"
 	"log/slog"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/raxima/seatpicker/internal/handler"
 	"github.com/raxima/seatpicker/internal/middleware"
 	"github.com/raxima/seatpicker/internal/model"
 	"github.com/raxima/seatpicker/internal/repository"
+	"github.com/raxima/seatpicker/internal/seats"
 	"github.com/raxima/seatpicker/internal/service"
 )
 
 type DB interface {
 	repository.DBTX
 	handler.Pinger
+	// Begin нужен для seats.Repository (RefundBooking работает в транзакции).
+	// Реальный *pgxpool.Pool, который передаётся сюда из main.go, этот метод уже реализует.
+	Begin(ctx context.Context) (pgx.Tx, error)
 }
 
 func New(db DB, logger *slog.Logger, authCfg service.AuthConfig) *gin.Engine {
@@ -57,13 +63,18 @@ func New(db DB, logger *slog.Logger, authCfg service.AuthConfig) *gin.Engine {
 	protected.PUT("/:id/cancel", showHandler.Cancel)
 
 	adminRepo := repository.NewPgAdminRepo(db)
-	adminService := service.NewAdminService(adminRepo, showRepo)
+	seatsRepo := seats.NewRepository(db)
+	adminService := service.NewAdminService(adminRepo, showRepo, seatsRepo)
 	adminHandler := handler.NewAdminHandler(adminService)
 
 	admin := r.Group("/admin", middleware.AuthMiddleware(authCfg.JWTSecret), middleware.RequireRole(model.RoleAdmin))
 	admin.GET("/stats", adminHandler.GetStats)
 	admin.GET("/shows", adminHandler.GetAllShows)
 	admin.PUT("/shows/:id/moderate", adminHandler.ModerateShow)
+	admin.GET("/refunds", adminHandler.ListRefunds)
+	admin.GET("/bookings/:id/refund", adminHandler.RefundBooking)
+	admin.GET("/export", adminHandler.ExportReport)
+	admin.GET("/holds", adminHandler.ListHolds)
 
 	return r
 }

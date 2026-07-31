@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/raxima/seatpicker/internal/router"
+	"github.com/raxima/seatpicker/internal/seats"
 	"github.com/raxima/seatpicker/internal/service"
 )
 
@@ -31,6 +32,28 @@ func getenvDuration(logger *slog.Logger, key, fallback string) time.Duration {
 		os.Exit(1)
 	}
 	return d
+}
+
+func runStaleHoldsCleaner(ctx context.Context, logger *slog.Logger, repo *seats.Repository, holdTTL, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			logger.Info("остановка фоновой очистки протухших hold'ов")
+			return
+		case <-ticker.C:
+			n, err := repo.ReleaseStaleHolds(ctx, holdTTL)
+			if err != nil {
+				logger.Error("не удалось освободить протухшие hold'ы", "error", err)
+				continue
+			}
+			if n > 0 {
+				logger.Info("протухшие hold'ы освобождены", "count", n)
+			}
+		}
+	}
 }
 
 func main() {
@@ -90,6 +113,12 @@ func main() {
 
 	stopCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	holdTTL := getenvDuration(logger, "HOLD_TTL", "15m")
+	holdCheckInterval := getenvDuration(logger, "HOLD_CHECK_INTERVAL", "1m")
+	seatsRepo := seats.NewRepository(pool)
+	go runStaleHoldsCleaner(stopCtx, logger, seatsRepo, holdTTL, holdCheckInterval)
+
 	<-stopCtx.Done()
 
 	logger.Info("получен сигнал завершения, начинаю graceful shutdown")

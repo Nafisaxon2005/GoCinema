@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/csv"
 	"strconv"
 	"time"
 
@@ -135,4 +136,96 @@ func (h *AdminHandler) ModerateShow(c *gin.Context) {
 	}
 
 	httpx.RespondOK(c, gin.H{"status": "ok"})
+}
+
+// RefundBooking оформляет возврат билета с причиной (C-04).
+// GET /admin/bookings/:id/refund?reason=...
+func (h *AdminHandler) RefundBooking(c *gin.Context) {
+	bookingID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		httpx.RespondError(c, model.ErrInvalid)
+		return
+	}
+
+	reason := c.Query("reason")
+	if reason == "" {
+		httpx.RespondError(c, model.ErrInvalid)
+		return
+	}
+
+	if err := h.service.RefundBooking(c.Request.Context(), bookingID, reason); err != nil {
+		httpx.RespondError(c, err)
+		return
+	}
+
+	httpx.RespondOK(c, gin.H{"status": "refunded"})
+}
+
+// ListRefunds возвращает список оформленных возвратов с пагинацией (C-04).
+// GET /admin/refunds?limit=&offset=
+func (h *AdminHandler) ListRefunds(c *gin.Context) {
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	offset, _ := strconv.Atoi(c.Query("offset"))
+
+	refunds, err := h.service.ListRefunds(c.Request.Context(), limit, offset)
+	if err != nil {
+		httpx.RespondError(c, err)
+		return
+	}
+
+	httpx.RespondOK(c, refunds)
+}
+
+// ExportReport выгружает отчёт по сеансам за период (C-05).
+// GET /admin/export?from=&to=&format=csv|json (по умолчанию csv)
+func (h *AdminHandler) ExportReport(c *gin.Context) {
+	from, to, err := parsePeriod(c.Query("from"), c.Query("to"))
+	if err != nil {
+		httpx.RespondError(c, model.ErrInvalid)
+		return
+	}
+
+	stats, err := h.service.GetStats(c.Request.Context(), from, to)
+	if err != nil {
+		httpx.RespondError(c, err)
+		return
+	}
+
+	switch c.Query("format") {
+	case "json":
+		httpx.RespondOK(c, stats)
+	default:
+		c.Header("Content-Type", "text/csv")
+		c.Header("Content-Disposition", `attachment; filename="report.csv"`)
+
+		cw := csv.NewWriter(c.Writer)
+		cw.Write([]string{"show_id", "title", "sold", "total", "revenue"})
+		for _, st := range stats {
+			cw.Write([]string{
+				strconv.FormatInt(st.ShowID, 10),
+				st.Title,
+				strconv.Itoa(st.Sold),
+				strconv.Itoa(st.Total),
+				strconv.FormatInt(st.Revenue, 10),
+			})
+		}
+		cw.Flush()
+	}
+}
+
+// ListHolds возвращает список протухших hold'ов старше N минут (C-06).
+// GET /admin/holds?minutes=15 (по умолчанию 15 минут)
+func (h *AdminHandler) ListHolds(c *gin.Context) {
+	minutes, _ := strconv.Atoi(c.Query("minutes"))
+	if minutes <= 0 {
+		minutes = 15
+	}
+
+	holds, err := h.service.ListStaleHolds(c.Request.Context(), time.Duration(minutes)*time.Minute)
+	if err != nil {
+		httpx.RespondError(c, err)
+		return
+	}
+
+	httpx.RespondOK(c, holds)
 }
