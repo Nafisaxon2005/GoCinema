@@ -12,9 +12,6 @@ import (
 	"github.com/raxima/seatpicker/internal/service"
 )
 
-// DB объединяет то, что нужно репозиториям (DBTX), и то, что нужно
-// health-проверке (Pinger). *pgxpool.Pool реализует оба интерфейса,
-// как и pgxmock.PgxPoolIface — в тестах.
 type DB interface {
 	repository.DBTX
 	handler.Pinger
@@ -58,6 +55,15 @@ func New(db DB, logger *slog.Logger, authCfg service.AuthConfig) *gin.Engine {
 	protected.POST("/:id/seatmap", showHandler.GenerateSeatMap)
 	protected.GET("/:id/stats", showHandler.GetStats)
 	protected.PUT("/:id/cancel", showHandler.Cancel)
+
+	adminRepo := repository.NewPgAdminRepo(db)
+	adminService := service.NewAdminService(adminRepo, showRepo)
+	adminHandler := handler.NewAdminHandler(adminService)
+
+	admin := r.Group("/admin", middleware.AuthMiddleware(authCfg.JWTSecret), middleware.RequireRole(model.RoleAdmin))
+	admin.GET("/stats", adminHandler.GetStats)
+	admin.GET("/shows", adminHandler.GetAllShows)
+	admin.PUT("/shows/:id/moderate", adminHandler.ModerateShow)
 
 	return r
 }
