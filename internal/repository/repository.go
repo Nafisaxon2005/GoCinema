@@ -4,6 +4,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/raxima/seatpicker/internal/model"
 )
 
@@ -28,6 +30,12 @@ type ShowRepo interface {
 	GetByID(ctx context.Context, id int64) (*model.Show, error)
 	List(ctx context.Context, f ShowListFilter) ([]model.Show, int, error)
 	UpdateStatus(ctx context.Context, id int64, status model.ShowStatus) error
+	Update(ctx context.Context, s *model.Show) error
+	Delete(ctx context.Context, id int64) error
+	UpdatePoster(ctx context.Context, showID int64, posterPath string) error
+	GetStats(ctx context.Context, showID int64) (*model.ShowStats, error)
+	GenerateSeatMap(ctx context.Context, showID int64, seats []model.Seat) error
+	CancelShow(ctx context.Context, showID int64) error
 	CountFreeSeats(ctx context.Context, showID int64) (int, error)
 }
 
@@ -49,4 +57,10 @@ type RefreshTokenRepo interface {
 	GetByHash(ctx context.Context, hash string) (*model.RefreshToken, error)
 	Revoke(ctx context.Context, id int64) error
 	RevokeAllForUser(ctx context.Context, userID int64) error
+}
+
+type DBTX interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }

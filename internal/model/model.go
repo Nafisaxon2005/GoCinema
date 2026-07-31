@@ -108,3 +108,38 @@ type RefreshToken struct {
 	RevokedAt *time.Time `json:"revoked_at,omitempty" db:"revoked_at"`
 	CreatedAt time.Time  `json:"created_at" db:"created_at"`
 }
+
+type CreateShowInput struct {
+	Title    string    `json:"title"`
+	Venue    string    `json:"venue"`
+	StartsAt time.Time `json:"starts_at"`
+}
+
+type UpdateShowInput struct {
+	Title    *string     `json:"title,omitempty"`
+	Venue    *string     `json:"venue,omitempty"`
+	StartsAt *time.Time  `json:"starts_at,omitempty"`
+	Status   *ShowStatus `json:"status,omitempty"`
+}
+
+type SeatMapZone struct {
+	FromRow int   `json:"from_row"`
+	ToRow   int   `json:"to_row"`
+	Price   int64 `json:"price"`
+}
+
+type GenerateSeatMapInput struct {
+	Rows        int           `json:"rows"`
+	SeatsPerRow int           `json:"seats_per_row"`
+	Price       int64         `json:"price"`
+	Zones       []SeatMapZone `json:"zones,omitempty"`
+}
+
+type ShowStats struct {
+	ShowID        int64   `json:"show_id"`
+	TotalSeats    int     `json:"total_seats"`
+	SoldSeats     int     `json:"sold_seats"`
+	Revenue       int64   `json:"revenue"`
+	OccupancyRate float64 `json:"occupancy_rate"`
+}
+

@@ -1,62 +1,52 @@
-// Package middleware содержит gin-middleware: JWT-аутентификацию (J-04/J-05)
-// и проверку ролей (viewer/organizer/admin) для защищённых маршрутов.
 package middleware
 
 import (
-	"strings"
+	"context"
+	"log/slog"
+	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/raxima/seatpicker/internal/httpx"
-	"github.com/raxima/seatpicker/internal/jwtutil"
-	"github.com/raxima/seatpicker/internal/model"
+	"github.com/google/uuid"
 )
 
-const (
-	CtxUserID = "user_id"
-	CtxRole   = "role"
-)
+type ctxKey string
 
-func Auth(secret []byte) gin.HandlerFunc {
+const requestIDKey ctxKey = "request_id"
+
+func RequestID() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		header := c.GetHeader("Authorization")
-		const prefix = "Bearer "
-		if !strings.HasPrefix(header, prefix) {
-			httpx.RespondError(c, model.ErrUnauthorized)
-			c.Abort()
-			return
-		}
+		reqID := uuid.NewString()
 
-		token := strings.TrimPrefix(header, prefix)
-		claims, err := jwtutil.ParseAccess(token, secret)
-		if err != nil {
-			httpx.RespondError(c, model.ErrUnauthorized)
-			c.Abort()
-			return
-		}
-		c.Set("user_id", claims.UserID)
-		c.Set("role", claims.Role)
+		ctx := context.WithValue(c.Request.Context(), requestIDKey, reqID)
+		c.Request = c.Request.WithContext(ctx)
+
+		c.Set("request_id", reqID)
+		c.Writer.Header().Set("X-Request-ID", reqID)
+
 		c.Next()
 	}
 }
 
-func RequireRole(roles ...model.Role) gin.HandlerFunc {
+func RequestIDFromContext(ctx context.Context) string {
+	if v, ok := ctx.Value(requestIDKey).(string); ok {
+		return v
+	}
+	return ""
+}
+
+func Logger(logger *slog.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		value, exists := c.Get(CtxRole)
-		if !exists {
-			httpx.RespondError(c, model.ErrUnauthorized)
-			c.Abort()
-			return
-		}
+		start := time.Now()
 
-		role, _ := value.(model.Role)
-		for _, allowed := range roles {
-			if role == allowed {
-				c.Next()
-				return
-			}
-		}
+		c.Next()
 
-		httpx.RespondError(c, model.ErrForbidden)
-		c.Abort()
+		logger.Info("http_request",
+			"layer", "router",
+			"request_id", c.GetString("request_id"),
+			"method", c.Request.Method,
+			"path", c.Request.URL.Path,
+			"status", c.Writer.Status(),
+			"duration_ms", time.Since(start).Milliseconds(),
+		)
 	}
 }

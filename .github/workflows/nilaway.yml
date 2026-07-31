@@ -1,0 +1,39 @@
+name: nilaway runned
+
+env:
+  GOPRIVATE: github.com/alif-academy-uz
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  nilaway:
+    name: 🟢 base · nilaway
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: false
+
+      - name: Configure private repo access
+        run: |
+          git config --global url."https://x-access-token:${{ secrets.PAT }}@github.com/".insteadOf "https://github.com/"
+
+      - name: clean go cache
+        run: go clean -cache -modcache
+
+      - name: install nilaway
+        run: |
+          mkdir -p ./bin
+          GOBIN=$PWD/bin go install go.uber.org/nilaway/cmd/nilaway@latest
+
+      - name: nilaway
+        run: ./bin/nilaway ./...

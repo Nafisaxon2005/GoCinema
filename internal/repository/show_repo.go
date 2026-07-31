@@ -7,16 +7,15 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/raxima/seatpicker/internal/model"
 )
 
 type PgShowRepo struct {
-	db *pgxpool.Pool
+	db DBTX
 }
 
-func NewPgShowRepo(db *pgxpool.Pool) *PgShowRepo {
+func NewPgShowRepo(db DBTX) *PgShowRepo {
 	return &PgShowRepo{db: db}
 }
 
@@ -148,3 +147,156 @@ func (r *PgShowRepo) CountFreeSeats(ctx context.Context, showID int64) (int, err
 	}
 	return count, nil
 }
+
+func (r *PgShowRepo) Update(ctx context.Context, s *model.Show) error {
+	const q = `UPDATE shows SET title = $2, venue = $3, starts_at = $4, status = $5 WHERE id = $1`
+
+	tag, err := r.db.Exec(ctx, q, s.ID, s.Title, s.Venue, s.StartsAt, s.Status)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return model.ErrNotFound
+	}
+	return nil
+}
+
+func (r *PgShowRepo) Delete(ctx context.Context, id int64) error {
+	const q = `DELETE FROM shows WHERE id = $1`
+
+	tag, err := r.db.Exec(ctx, q, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return model.ErrNotFound
+	}
+	return nil
+}
+
+func (r *PgShowRepo) UpdatePoster(ctx context.Context, showID int64, posterPath string) error {
+	const q = `UPDATE shows SET poster_path = $2 WHERE id = $1`
+
+	tag, err := r.db.Exec(ctx, q, showID, posterPath)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return model.ErrNotFound
+	}
+	return nil
+}
+
+func (r *PgShowRepo) GetStats(ctx context.Context, showID int64) (*model.ShowStats, error) {
+	var exists bool
+	err := r.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM shows WHERE id = $1)`, showID).Scan(&exists)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, model.ErrNotFound
+	}
+
+	const q = `
+		SELECT
+			COUNT(*) AS total_seats,
+			COUNT(CASE WHEN status = 'booked' THEN 1 END) AS sold_seats,
+			COALESCE(SUM(CASE WHEN status = 'booked' THEN price ELSE 0 END), 0) AS revenue
+		FROM seats
+		WHERE show_id = $1`
+
+	var stats model.ShowStats
+	stats.ShowID = showID
+	err = r.db.QueryRow(ctx, q, showID).Scan(&stats.TotalSeats, &stats.SoldSeats, &stats.Revenue)
+	if err != nil {
+		return nil, err
+	}
+
+	if stats.TotalSeats > 0 {
+		stats.OccupancyRate = (float64(stats.SoldSeats) / float64(stats.TotalSeats)) * 100.0
+	} else {
+		stats.OccupancyRate = 0.0
+	}
+
+	return &stats, nil
+}
+
+func (r *PgShowRepo) GenerateSeatMap(ctx context.Context, showID int64, seats []model.Seat) error {
+	var bookedCount int
+	err := r.db.QueryRow(ctx, `SELECT COUNT(*) FROM seats WHERE show_id = $1 AND status = 'booked'`, showID).Scan(&bookedCount)
+	if err != nil {
+		return err
+	}
+	if bookedCount > 0 {
+		return model.ErrSeatTaken
+	}
+
+	_, err = r.db.Exec(ctx, `DELETE FROM seats WHERE show_id = $1`, showID)
+	if err != nil {
+		return err
+	}
+
+	if len(seats) == 0 {
+		return nil
+	}
+
+	valueStrings := make([]string, 0, len(seats))
+	valueArgs := make([]any, 0, len(seats)*5)
+
+	for i, seat := range seats {
+		n := i * 5
+		valueStrings = append(valueStrings, fmt.Sprintf("($%d, $%d, $%d, $%d, $%d)", n+1, n+2, n+3, n+4, n+5))
+		valueArgs = append(valueArgs, showID, seat.Row, seat.Num, seat.Price, model.SeatFree)
+	}
+
+	stmt := fmt.Sprintf("INSERT INTO seats (show_id, row, num, price, status) VALUES %s", strings.Join(valueStrings, ", "))
+	_, err = r.db.Exec(ctx, stmt, valueArgs...)
+	return err
+}
+
+type Beginner interface {
+	Begin(ctx context.Context) (pgx.Tx, error)
+}
+
+func (r *PgShowRepo) CancelShow(ctx context.Context, showID int64) error {
+	beginner, ok := r.db.(Beginner)
+	if !ok {
+		tag, err := r.db.Exec(ctx, `UPDATE shows SET status = $2 WHERE id = $1`, showID, model.ShowCancelled)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			return model.ErrNotFound
+		}
+		_, _ = r.db.Exec(ctx, `UPDATE bookings SET status = $2 WHERE show_id = $1 AND status = $3`, showID, model.BookingCancelled, model.BookingBooked)
+		_, _ = r.db.Exec(ctx, `UPDATE seats SET status = $2 WHERE show_id = $1`, showID, model.SeatFree)
+		return nil
+	}
+
+	tx, err := beginner.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	tag, err := tx.Exec(ctx, `UPDATE shows SET status = $2 WHERE id = $1`, showID, model.ShowCancelled)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return model.ErrNotFound
+	}
+
+	_, err = tx.Exec(ctx, `UPDATE bookings SET status = $2 WHERE show_id = $1 AND status = $3`, showID, model.BookingCancelled, model.BookingBooked)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(ctx, `UPDATE seats SET status = $2 WHERE show_id = $1`, showID, model.SeatFree)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
+}
+
